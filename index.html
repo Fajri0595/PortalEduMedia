@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portal EduMedia</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ══════════ LOADING OVERLAY AWAL ══════════ -->
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="brand-mark"><i class="bi bi-mortarboard-fill"></i></div>
+    <div class="spinner-border" role="status" style="color:var(--accent)"></div>
+    <p class="mt-3 text-muted">Memuat Portal EduMedia...</p>
+  </div>
+
+  <!-- ══════════ VIEW: LOGIN (Dosen/Admin) ══════════ -->
+  <div id="view-login" class="auth-view" style="display:none;">
+    <div class="auth-card">
+      <div class="brand-mark mx-auto"><i class="bi bi-mortarboard-fill"></i></div>
+      <h4 class="text-center fw-bold mt-3 mb-1" style="color:var(--navy)">Portal EduMedia</h4>
+      <p class="text-center text-muted small mb-4">LMS Interaktif &amp; Repositori Pembelajaran</p>
+
+      <h5 class="text-center fw-bold mb-1">Masuk ke Portal</h5>
+      <p class="text-center text-muted small mb-4">Gunakan akun Dosen/Admin terdaftar untuk mengakses dasbor.</p>
+
+      <form id="loginForm" onsubmit="handleLogin(event)" class="mt-1">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">NIDN / Email Institusi</label>
+          <input type="text" class="form-control" id="loginIdentifier" placeholder="contoh: siti@univ.ac.id" required autocomplete="username">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Kata Sandi</label>
+          <input type="password" class="form-control" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-accent w-100 py-2">
+          <i class="bi bi-box-arrow-in-right"></i> Masuk ke Akun
+        </button>
+      </form>
+
+      <div class="auth-hint mt-3">
+        <i class="bi bi-shield-check"></i> Mahasiswa tidak perlu login — gunakan tautan kelas dari Dosen.
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ VIEW: KATALOG TAMU (Mahasiswa, tanpa login) ══════════ -->
+  <div id="view-guest" class="guest-view" style="display:none;">
+    <div id="guestContent"><!-- diisi renderGuestCatalog() --></div>
+  </div>
+
+  <!-- ══════════ VIEW: TOKEN TIDAK VALID ══════════ -->
+  <div id="view-guest-invalid" class="auth-view" style="display:none;">
+    <div class="auth-card text-center">
+      <i class="bi bi-emoji-frown display-4" style="color:var(--text-secondary)"></i>
+      <h5 class="fw-bold mt-3">Kelas Tidak Ditemukan</h5>
+      <p class="text-muted small">Token akses tidak valid atau sudah kedaluwarsa. Hubungi dosen Anda untuk mendapatkan tautan terbaru.</p>
+    </div>
+  </div>
+
+  <!-- ══════════ APP SHELL (Dosen/Admin) ══════════ -->
+  <div id="app-shell" style="display:none;">
+    <nav id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand-row">
+          <div class="brand-mark small"><i class="bi bi-mortarboard-fill"></i></div>
+          <div>
+            <div class="brand-title">Portal EduMedia</div>
+            <div class="brand-sub">LMS INTERAKTIF</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-scroll">
+        <div class="nav-group-label">Utama</div>
+        <ul class="sidebar-nav">
+          <li><a href="javascript:void(0)" onclick="navigateTo('katalogSaya')" class="nav-link" data-section="katalogSaya"><i class="bi bi-grid-1x2"></i><span>Katalog Saya</span></a></li>
+          <li><a href="javascript:void(0)" onclick="navigateTo('manajemenKelas')" class="nav-link" data-section="manajemenKelas"><i class="bi bi-mortarboard"></i><span>Manajemen Kelas</span></a></li>
+          <li><a href="javascript:void(0)" onclick="navigateTo('laporanAktivitas')" class="nav-link" data-section="laporanAktivitas"><i class="bi bi-graph-up-arrow"></i><span>Laporan Aktivitas</span></a></li>
+          <li><a href="javascript:void(0)" onclick="navigateTo('tutorialTeks')" class="nav-link" data-section="tutorialTeks"><i class="bi bi-journal-bookmark"></i><span>Tutorial</span></a></li>
+        </ul>
+
+        <div class="nav-group-label">Modul Khusus Dosen</div>
+        <ul class="sidebar-nav">
+          <li><a href="javascript:void(0)" onclick="navigateTo('redeemKode')" class="nav-link" data-section="redeemKode"><i class="bi bi-key"></i><span>Redeem Kode</span></a></li>
+          <li><a href="javascript:void(0)" onclick="navigateTo('videoTutorialSaya')" class="nav-link" data-section="videoTutorialSaya"><i class="bi bi-play-circle"></i><span>Video Tutorial Saya</span></a></li>
+        </ul>
+
+        <div id="navGroupAdmin" style="display:none;">
+          <div class="nav-group-label">Administrasi</div>
+          <ul class="sidebar-nav">
+            <li><a href="javascript:void(0)" onclick="navigateTo('adminDashboard')" class="nav-link" data-section="adminDashboard"><i class="bi bi-speedometer2"></i><span>Admin Dashboard</span></a></li>
+            <li><a href="javascript:void(0)" onclick="navigateTo('bankVideoTutorial')" class="nav-link" data-section="bankVideoTutorial"><i class="bi bi-collection-play"></i><span>Bank Video Tutorial</span></a></li>
+            <li><a href="javascript:void(0)" onclick="navigateTo('manajemenUser')" class="nav-link" data-section="manajemenUser"><i class="bi bi-people"></i><span>Manajemen User</span></a></li>
+            <li><a href="javascript:void(0)" onclick="navigateTo('kelolaKontenTutorial')" class="nav-link" data-section="kelolaKontenTutorial"><i class="bi bi-pencil-square"></i><span>Kelola Konten Tutorial</span></a></li>
+            <li><a href="javascript:void(0)" onclick="navigateTo('laporanGlobal')" class="nav-link" data-section="laporanGlobal"><i class="bi bi-globe2"></i><span>Laporan Global</span></a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="user-chip">
+          <div class="user-avatar" id="sidebarAvatar">DS</div>
+          <div class="flex-grow-1 overflow-hidden">
+            <div class="user-name" id="sidebarNama">-</div>
+            <div class="user-role" id="sidebarRole">-</div>
+          </div>
+        </div>
+        <a href="javascript:void(0)" onclick="handleLogout()" class="logout-link"><i class="bi bi-box-arrow-left"></i> Keluar</a>
+      </div>
+    </nav>
+
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+    <main class="main-content">
+      <div class="topbar">
+        <button class="btn-icon d-lg-none" onclick="toggleSidebar()"><i class="bi bi-list"></i></button>
+        <h6 class="mb-0 fw-semibold" id="pageTitle">Katalog Saya</h6>
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <button class="btn-icon" onclick="toggleDarkMode()" title="Mode Gelap"><i class="bi bi-moon-stars" id="darkModeIcon"></i></button>
+        </div>
+      </div>
+
+      <div class="content-pad">
+        <section id="section-katalogSaya" class="content-section"></section>
+        <section id="section-manajemenKelas" class="content-section"></section>
+        <section id="section-laporanAktivitas" class="content-section"></section>
+        <section id="section-tutorialTeks" class="content-section"></section>
+        <section id="section-redeemKode" class="content-section"></section>
+        <section id="section-videoTutorialSaya" class="content-section"></section>
+        <section id="section-adminDashboard" class="content-section"></section>
+        <section id="section-manajemenUser" class="content-section"></section>
+        <section id="section-bankVideoTutorial" class="content-section"></section>
+        <section id="section-kelolaKontenTutorial" class="content-section"></section>
+        <section id="section-laporanGlobal" class="content-section"></section>
+      </div>
+    </main>
+  </div>
+
+  <!-- ══════════ MODAL: FORM TAUTAN MEDIA ══════════ -->
+  <div class="modal fade" id="modalLinkForm" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalLinkFormTitle"><i class="bi bi-link-45deg"></i> Tambah Tautan Media Pembelajaran</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form id="formLink" onsubmit="submitLinkForm(event)">
+          <div class="modal-body">
+            <input type="hidden" id="linkId">
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Judul Media Pembelajaran *</label>
+              <input type="text" class="form-control" id="linkJudul" maxlength="90" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Kategori</label>
+              <select class="form-select" id="linkKategori">
+                <option>Simulasi</option><option>Slide Interaktif</option><option>Live Coding</option>
+                <option>Kuis</option><option>Papan Kolaborasi</option><option>Umum</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Deskripsi Singkat</label>
+              <textarea class="form-control" id="linkDeskripsi" rows="2"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">URL Tautan Utama *</label>
+              <input type="url" class="form-control" id="linkTautan" placeholder="https://..." required>
+            </div>
+            <div class="mb-1">
+              <label class="form-label small fw-semibold">URL Gambar Thumbnail *</label>
+              <input type="url" class="form-control" id="linkThumbnail" placeholder="https://..." required oninput="previewThumbnail()">
+            </div>
+            <div id="thumbPreviewBox" class="thumb-preview-box mt-2" style="display:none;">
+              <img id="thumbPreviewImg" src="" alt="preview">
+            </div>
+            <div class="form-check form-switch mt-3">
+              <input class="form-check-input" type="checkbox" id="linkStatusAktif" checked>
+              <label class="form-check-label small" for="linkStatusAktif">Status Aktif (dapat didistribusikan ke kelas)</label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+            <button type="submit" class="btn btn-accent" id="btnSaveLinkForm"><i class="bi bi-check2"></i> Simpan &amp; Publikasikan</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ MODAL: PEMUTAR VIDEO ══════════ -->
+  <div class="modal fade" id="modalVideoPlayer" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content video-modal-content">
+        <div class="modal-header border-0">
+          <h5 class="modal-title text-white" id="videoPlayerTitle">Video Tutorial</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body pt-0">
+          <div class="ratio ratio-16x9 video-frame">
+            <iframe id="videoPlayerFrame" src="" frameborder="0" allowfullscreen allow="autoplay; encrypted-media"></iframe>
+          </div>
+          <p class="text-white-50 small mt-3 mb-0" id="videoPlayerDesc"></p>
+          <div id="videoPlayerLampiran" class="mt-3"></div>
+          <div class="video-log-note mt-3"><i class="bi bi-arrow-repeat"></i> Aktivitas tontonan tercatat otomatis ke Log Tonton Video.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ MODAL: TAMBAH VIDEO (Admin) ══════════ -->
+  <div class="modal fade" id="modalAddVideo" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-collection-play"></i> Tambah Video Tutorial</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form id="formAddVideo" onsubmit="submitAddVideo(event)">
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Judul Video *</label>
+              <input type="text" class="form-control" id="videoJudul" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Deskripsi</label>
+              <textarea class="form-control" id="videoDeskripsi" rows="2"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">URL Video (YouTube / Vimeo) *</label>
+              <input type="url" class="form-control" id="videoUrl" placeholder="https://www.youtube.com/watch?v=..." required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">URL Thumbnail</label>
+              <input type="url" class="form-control" id="videoThumbnail" placeholder="https://...">
+            </div>
+            <div class="mb-1">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <label class="form-label small fw-semibold mb-0">Lampiran (opsional)</label>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addLampiranRow()"><i class="bi bi-plus-lg"></i> Tambah Lampiran</button>
+              </div>
+              <div id="videoLampiranList"></div>
+              <div class="form-text">Lampiran baru terbuka untuk Dosen setelah kode redeem ditukar, sama seperti videonya.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+            <button type="submit" class="btn btn-accent"><i class="bi bi-check2"></i> Simpan Video</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ MODAL: GENERATE KODE REDEEM (Admin) ══════════ -->
+  <div class="modal fade" id="modalGenerateKode" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-key-fill"></i> Generate Kode Redeem Video</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label small fw-semibold text-uppercase">Video Target</label>
+          <div class="kode-video-target mb-3" id="generateKodeVideoLabel">-</div>
+          <div id="generateKodeResultBox" style="display:none;">
+            <div class="kode-result-box">
+              <div class="small text-muted mb-1">Kode Redeem Unik Berhasil Digenerate:</div>
+              <div class="kode-result-text" id="generateKodeResultText">-</div>
+              <div class="small mt-1"><span class="badge-status badge-warning">Belum Terpakai</span> &nbsp;•&nbsp; Berlaku 1x Redeem</div>
+            </div>
+            <button type="button" class="btn btn-accent w-100 mt-3" onclick="copyGeneratedCode()"><i class="bi bi-clipboard"></i> Salin Kode Redeem</button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-accent w-100" id="btnGenerateKodeAction" onclick="confirmGenerateKode()">
+            <i class="bi bi-magic"></i> Generate Kode Baru
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ MODAL: FORM USER (Admin) ══════════ -->
+  <div class="modal fade" id="modalUserForm" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalUserFormTitle"><i class="bi bi-person-plus"></i> Tambah Pengguna</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form id="formUser" onsubmit="submitUserForm(event)">
+          <div class="modal-body">
+            <input type="hidden" id="userId">
+            <div class="mb-3"><label class="form-label small fw-semibold">Nama Lengkap *</label><input type="text" class="form-control" id="userNama" required></div>
+            <div class="mb-3"><label class="form-label small fw-semibold">Email *</label><input type="email" class="form-control" id="userEmail" required></div>
+            <div class="mb-3"><label class="form-label small fw-semibold">NIDN</label><input type="text" class="form-control" id="userNidn"></div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Role *</label>
+              <select class="form-select" id="userRole"><option value="Dosen">Dosen</option><option value="Admin">Admin</option></select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Kata Sandi <span class="text-muted fw-normal">(kosongkan jika tidak diubah)</span></label>
+              <input type="text" class="form-control" id="userPassword" placeholder="Kata sandi baru">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small fw-semibold">Akses Silang ke Dosen Lain</label>
+              <select class="form-select" id="userAksesSilang" multiple size="4"></select>
+              <div class="form-text">Tahan Ctrl/Cmd untuk memilih lebih dari satu.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+            <button type="submit" class="btn btn-accent"><i class="bi bi-check2"></i> Simpan Pengguna</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ MODAL: FORM TUTORIAL (Admin) ══════════ -->
+  <div class="modal fade" id="modalTutorialForm" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalTutorialFormTitle"><i class="bi bi-pencil-square"></i> Tulis Panduan Baru</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form id="formTutorial" onsubmit="submitTutorialForm(event)">
+          <div class="modal-body">
+            <input type="hidden" id="tutorialId">
+            <div class="mb-3"><label class="form-label small fw-semibold">Judul Panduan *</label><input type="text" class="form-control" id="tutorialJudul" required></div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Kategori</label>
+              <input type="text" class="form-control" id="tutorialKategori" placeholder="misal: Manajemen Kelas">
+            </div>
+            <div class="mb-1"><label class="form-label small fw-semibold">Isi Panduan *</label><textarea class="form-control" id="tutorialKonten" rows="6" required></textarea></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+            <button type="submit" class="btn btn-accent"><i class="bi bi-check2"></i> Publikasikan Pembaruan</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ MODAL: KONFIRMASI HAPUS (generik) ══════════ -->
+  <div class="modal fade" id="modalConfirm" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Konfirmasi</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body"><p id="modalConfirmText" class="mb-0">Apakah Anda yakin?</p></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+          <button type="button" class="btn btn-danger" id="btnModalConfirmAction">Ya, Lanjutkan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ TOAST ══════════ -->
+  <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index:99999;">
+    <div id="appToast" class="toast" role="alert">
+      <div class="toast-header">
+        <i class="bi bi-info-circle me-2" id="toastIcon"></i>
+        <strong class="me-auto" id="toastTitle">Notifikasi</strong>
+        <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+      </div>
+      <div class="toast-body" id="toastBody"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
