@@ -1,4 +1,4 @@
-    /* ══════════ CSS CUSTOM PROPERTIES — LIGHT THEME ══════════ */
+/* ══════════ CSS CUSTOM PROPERTIES — LIGHT THEME ══════════ */
     :root, [data-theme="light"] {
       --bg-primary: #F5F7FA;
       --bg-card: #FFFFFF;
@@ -212,9 +212,12 @@
     .guest-view { min-height:100vh; background: var(--bg-primary); }
     .guest-header { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%); color:#fff; padding: 2rem 1.5rem; }
     .guest-header-inner { max-width:1200px; margin:0 auto; }
-    .guest-grid { max-width:1200px; margin: -1.5rem auto 0; padding: 0 1.5rem 3rem; display:grid; grid-template-columns: repeat(3,1fr); gap:1.25rem; }
-    @media (max-width: 991.98px) { .guest-grid { grid-template-columns: repeat(2,1fr); } }
-    @media (max-width: 575.98px) { .guest-grid { grid-template-columns: 1fr; padding: 0 1rem 2rem; } .guest-header { padding:1.25rem 1rem; } }
+    /* flex-wrap (bukan grid kaku 3 kolom) — supaya saat materi cuma 1-2, kartu
+       tidak menyisakan "kolom hantu" kosong yang bikin layout terlihat pincang. */
+    .guest-grid { max-width:1200px; margin: -1.5rem auto 0; padding: 0 1.5rem 3rem; display:flex; flex-wrap:wrap; align-items:stretch; gap:1.25rem; }
+    .guest-grid .media-card { flex: 1 1 300px; max-width: 372px; }
+    .guest-grid .empty-state { width:100%; }
+    @media (max-width: 575.98px) { .guest-grid { padding: 0 1rem 2rem; } .guest-grid .media-card { flex-basis:100%; max-width:100%; } .guest-header { padding:1.25rem 1rem; } }
     
     /* ══════════ REDEEM / VIDEO PLAYER ══════════ */
     .kode-video-target { background: var(--navy-light); border-radius: var(--input-radius); padding:.7rem .9rem; font-size:.85rem; font-weight:600; }
