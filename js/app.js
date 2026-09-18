@@ -1,4 +1,4 @@
-    /**
+/**
      * ============================================================
      * PORTAL EDUMEDIA — Frontend JavaScript
      * Arsitektur: GAS-PRO-API — frontend statis (GitHub Pages) + GAS
@@ -14,15 +14,59 @@
     // BAGIAN 1: STATE APLIKASI (di memori, BUKAN di URL)
     // ════════════════════════════════════════════════════════
     
+    /**
+     * Cache persisten: sama seperti objek biasa (AppState.cache.xxx = ...,
+     * delete AppState.cache.xxx, bahkan AppState.cache.kelasDetail[id] = ...),
+     * TAPI setiap perubahan (termasuk yang bersarang) otomatis ikut disimpan
+     * ke localStorage lewat Proxy — tidak ada satu pun titik pemanggilan cache
+     * di bawah yang perlu diubah.
+     *
+     * Manfaatnya: navigasi PERTAMA KALI ke sebuah menu pun bisa langsung
+     * instan selama pernah dibuka di browser ini sebelumnya (data lama
+     * langsung tampil, lalu disegarkan diam-diam di background) — tidak lagi
+     * harus menunggu dulu satu kali "pemanasan" di setiap sesi baru.
+     */
+    const CACHE_STORAGE_KEY = 'em_cache_v1';
+    function createPersistentCache() {
+      let store = {};
+      try {
+        const raw = localStorage.getItem(CACHE_STORAGE_KEY);
+        if (raw) store = JSON.parse(raw);
+      } catch (e) { store = {}; }
+    
+      function persist() {
+        try { localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(store)); }
+        catch (e) { /* localStorage penuh/nonaktif — cache tetap jalan di memori saja */ }
+      }
+    
+      function wrap(target) {
+        return new Proxy(target, {
+          get(t, prop) {
+            const val = t[prop];
+            return (val && typeof val === 'object') ? wrap(val) : val;
+          },
+          set(t, prop, value) { t[prop] = value; persist(); return true; },
+          deleteProperty(t, prop) { delete t[prop]; persist(); return true; }
+        });
+      }
+      return wrap(store);
+    }
+    // Dipanggil saat logout / sesi habis — cache lama dihapus total (privasi,
+    // supaya pengguna berikutnya di komputer yang sama tidak melihat data
+    // pengguna sebelumnya), lalu cache baru yang kosong disiapkan lagi.
+    function clearPersistentCache() {
+      try { localStorage.removeItem(CACHE_STORAGE_KEY); } catch (e) {}
+      AppState.cache = createPersistentCache();
+    }
+    
     const AppState = {
       sessionToken: null,
       role: null, nama: null, id: null, email: null,
       currentSection: null,
-      cache: {},         // cache data hasil fetch per section
-      initialized: {},   // track section mana yang shell HTML-nya sudah dibangun
+      cache: createPersistentCache(),  // cache hasil fetch per section, bertahan lintas refresh (localStorage)
       guestData: null,
       chartInstances: {},
-      baseUrl: window.location.href.split('?')[0]  // URL frontend sendiri (GitHub Pages)
+      baseUrl: window.location.href.split('?')[0]  // URL frontend sendiri (GitHub Pages), stabil & selalu benar
     };
     
     const SECTION_TITLES = {
@@ -74,6 +118,41 @@
       showView('app');
       const lastSection = sessionStorage.getItem('em_last_section');
       navigateTo(lastSection && SECTION_TITLES[lastSection] ? lastSection : data.landingPage);
+      prefetchAfterLogin(AppState.role);
+    }
+    
+    // Menu mana saja yang "dipanaskan" diam-diam di background setelah login,
+    // per role — supaya saat pengguna benar-benar mengklik menu tsb, cache-nya
+    // sudah terisi dan tampil instan, bukan baru mulai fetch saat itu juga.
+    const PREFETCH_MAP = {
+      Dosen: [
+        { cacheKeys: ['katalogSaya'], action: 'getKatalogSaya' },
+        { cacheKeys: ['kelasSaya'], action: 'getKelasSaya' },
+        { cacheKeys: ['videoTutorialSaya'], action: 'getSemuaVideoUntukDosen' },
+        { cacheKeys: ['tutorialTeks', 'kelolaKonten'], action: 'getTutorialKonten' }
+      ],
+      Admin: [
+        { cacheKeys: ['adminDashboard'], action: 'getAdminDashboardData' },
+        { cacheKeys: ['bankVideo'], action: 'getBankVideo' },
+        { cacheKeys: ['users'], action: 'getAllUsers' },
+        { cacheKeys: ['kelolaKonten', 'tutorialTeks'], action: 'getTutorialKonten' }
+      ]
+    };
+    
+    function prefetchAfterLogin(role) {
+      (PREFETCH_MAP[role] || []).forEach((item, i) => {
+        // Ditunda bertahap (staggered) supaya tidak membanjiri server dengan
+        // banyak request bersamaan tepat setelah login. Ini murni pemanasan
+        // cache di belakang layar — tidak menyentuh DOM, tidak menampilkan
+        // skeleton/toast apa pun, dan kalau gagal cukup dibiarkan (nanti
+        // menu terkait tetap fetch normal seperti biasa saat benar-benar dibuka).
+        setTimeout(() => {
+          google.script.run
+            .withSuccessHandler(res => { if (res.success) item.cacheKeys.forEach(key => { AppState.cache[key] = res.data; }); })
+            .withFailureHandler(() => {})
+            [item.action](AppState.sessionToken);
+        }, i * 350);
+      });
     }
     
     function hideLoadingOverlay() {
@@ -189,6 +268,7 @@
       showView('app');
       showToast('Selamat Datang', `Halo, ${res.data.nama}!`, 'success');
       navigateTo(res.data.landingPage);
+      prefetchAfterLogin(AppState.role);
     }
     
     function applyUserChip() {
@@ -200,7 +280,7 @@
     
     function handleLogout() {
       google.script.run.doLogout(AppState.sessionToken); // fire & forget
-      AppState.sessionToken = null; AppState.role = null; AppState.cache = {};
+      AppState.sessionToken = null; AppState.role = null; clearPersistentCache();
       sessionStorage.removeItem('em_token'); sessionStorage.removeItem('em_last_section');
       document.getElementById('loginForm').reset();
       showView('login');
@@ -209,7 +289,7 @@
     // Jika sesi berakhir di tengah pemakaian
     function handleSessionExpired() {
       showToast('Sesi Berakhir', 'Silakan login kembali.', 'warning');
-      AppState.sessionToken = null; AppState.cache = {};
+      AppState.sessionToken = null; clearPersistentCache();
       sessionStorage.removeItem('em_token'); sessionStorage.removeItem('em_last_section');
       showView('login');
     }
@@ -218,28 +298,22 @@
     // BAGIAN 5: ROUTER SPA — INSTANT (0ms, tanpa reload / URL)
     // ════════════════════════════════════════════════════════
     
-    function navigateTo(section, forceRefresh) {
-      // ── 1. Tampilkan section INSTAN (hanya toggle CSS, 0ms) ──
+    function navigateTo(section) {
       document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
       document.getElementById('section-' + section).classList.add('active');
       document.querySelectorAll('.sidebar-nav .nav-link').forEach(l => l.classList.toggle('active', l.dataset.section === section));
       document.getElementById('pageTitle').textContent = SECTION_TITLES[section] || 'Halaman';
       AppState.currentSection = section;
-      sessionStorage.setItem('em_last_section', section);
+      sessionStorage.setItem('em_last_section', section); // FIX: dipulihkan setelah refresh
       closeSidebarMobile();
     
-      // ── 2. Jalankan loader hanya jika:
-      //    a) Section belum pernah di-inisialisasi (kunjungan pertama), ATAU
-      //    b) forceRefresh=true (setelah save/delete/mutasi data) ──
       const loaders = {
         katalogSaya: loadKatalogSaya, manajemenKelas: loadManajemenKelas, laporanAktivitas: loadLaporanAktivitas,
         tutorialTeks: loadTutorialTeks, redeemKode: loadRedeemKode, videoTutorialSaya: loadVideoTutorialSaya,
         adminDashboard: loadAdminDashboard, manajemenUser: loadManajemenUser, bankVideoTutorial: loadBankVideoTutorial,
         kelolaKontenTutorial: loadKelolaKontenTutorial, laporanGlobal: loadLaporanGlobal
       };
-      if (loaders[section] && (!AppState.initialized[section] || forceRefresh)) {
-        loaders[section]();
-      }
+      if (loaders[section]) loaders[section]();
     }
     
     function toggleSidebar() {
@@ -301,23 +375,19 @@
     
     function loadKatalogSaya() {
       const el = document.getElementById('section-katalogSaya');
-      // Build shell sekali — navigasi berulang tidak rebuild DOM
-      if (!AppState.initialized.katalogSaya) {
-        el.innerHTML = pageHeaderHtml('Katalog Media Dosen', 'Katalog Saya', 'Kelola tautan media interaktif untuk didistribusikan ke kelas Anda.',
-          `<button class="btn btn-accent" onclick="openLinkForm()"><i class="bi bi-plus-lg"></i> Tambah Link Media</button>`)
-          + `<div id="katalogSayaBody"></div>`;
-        AppState.initialized.katalogSaya = true;
-      }
+      el.innerHTML = pageHeaderHtml('Katalog Media Dosen', 'Katalog Saya', 'Kelola tautan media interaktif untuk didistribusikan ke kelas Anda.',
+        `<button class="btn btn-accent" onclick="openLinkForm()"><i class="bi bi-plus-lg"></i> Tambah Link Media</button>`)
+        + `<div id="katalogSayaBody"></div>`;
       const cached = AppState.cache.katalogSaya;
-      if (cached) { renderKatalogSaya(cached); return; } // cache ada → tampil instan, TIDAK fetch
-      skeletonBlock('katalogSayaBody', 4);
+      if (cached) { renderKatalogSaya(cached); } else { skeletonBlock('katalogSayaBody', 4); }
+    
       google.script.run
         .withSuccessHandler(res => {
-          if (!res.success) { handleBackendError(res); return; }
+          if (!res.success) { if (!cached) handleBackendError(res); return; }
           AppState.cache.katalogSaya = res.data;
           renderKatalogSaya(res.data);
         })
-        .withFailureHandler(handleBackendError)
+        .withFailureHandler(err => { if (!cached) handleBackendError(err); })
         .getKatalogSaya(AppState.sessionToken);
     }
     
@@ -416,8 +486,6 @@
           if (!res.success) return handleBackendError(res);
           bootstrap.Modal.getInstance(document.getElementById('modalLinkForm')).hide();
           showToast('Berhasil', res.message, 'success');
-          // Invalidate cache & refresh hanya data (bukan rebuild shell)
-          delete AppState.cache.katalogSaya;
           loadKatalogSaya();
         })
         .withFailureHandler(err => { btn.innerHTML = original; btn.disabled = false; handleBackendError(err); })
@@ -433,7 +501,6 @@
             bootstrap.Modal.getInstance(document.getElementById('modalConfirm')).hide();
             if (!res.success) return handleBackendError(res);
             showToast('Berhasil', res.message, 'success');
-            delete AppState.cache.katalogSaya;
             loadKatalogSaya();
           })
           .withFailureHandler(handleBackendError)
@@ -450,22 +517,19 @@
     
     function loadManajemenKelas() {
       const el = document.getElementById('section-manajemenKelas');
-      if (!AppState.initialized.manajemenKelas) {
-        el.innerHTML = pageHeaderHtml('Sistem Kontrol Akses', 'Manajemen Kelas', 'Atur tautan media mana saja yang dapat diakses tiap rombongan belajar (rombel).',
-          `<button class="btn btn-accent" onclick="promptCreateKelas()"><i class="bi bi-plus-lg"></i> Buat Rombel Baru</button>`)
-          + `<div id="manajemenKelasBody"></div>`;
-        AppState.initialized.manajemenKelas = true;
-      }
+      el.innerHTML = pageHeaderHtml('Sistem Kontrol Akses', 'Manajemen Kelas', 'Atur tautan media mana saja yang dapat diakses tiap rombongan belajar (rombel).',
+        `<button class="btn btn-accent" onclick="promptCreateKelas()"><i class="bi bi-plus-lg"></i> Buat Rombel Baru</button>`)
+        + `<div id="manajemenKelasBody"></div>`;
       const cached = AppState.cache.kelasSaya;
-      if (cached) { renderManajemenKelas(cached); return; }
-      skeletonBlock('manajemenKelasBody', 3);
+      if (cached) { renderManajemenKelas(cached); } else { skeletonBlock('manajemenKelasBody', 3); }
+    
       google.script.run
         .withSuccessHandler(res => {
-          if (!res.success) { handleBackendError(res); return; }
+          if (!res.success) { if (!cached) handleBackendError(res); return; }
           AppState.cache.kelasSaya = res.data;
           renderManajemenKelas(res.data);
         })
-        .withFailureHandler(handleBackendError)
+        .withFailureHandler(err => { if (!cached) handleBackendError(err); })
         .getKelasSaya(AppState.sessionToken);
     }
     
@@ -562,8 +626,6 @@
           if (!res.success) return handleBackendError(res);
           showToast('Berhasil', res.message, 'success');
           selectedKelasId = res.data.id;
-          delete AppState.cache.kelasSaya;
-          delete AppState.cache.kelasDetail;
           loadManajemenKelas();
         })
         .withFailureHandler(handleBackendError)
@@ -576,8 +638,6 @@
         .withSuccessHandler(res => {
           if (!res.success) return handleBackendError(res);
           showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.kelasSaya;
-          delete AppState.cache.kelasDetail;
           loadManajemenKelas();
         })
         .withFailureHandler(handleBackendError)
@@ -604,32 +664,27 @@
     
     function loadRedeemKode() {
       const el = document.getElementById('section-redeemKode');
-      if (!AppState.initialized.redeemKode) {
-        el.innerHTML = `
-          <div class="mb-3"><span class="badge-khusus"><i class="bi bi-lock"></i> Khusus Dosen</span></div>
-          <div class="page-title mb-1">Redeem Kode Video Tutorial</div>
-          <div class="page-desc mb-4">Masukkan kode unik dari Admin untuk membuka akses video tutorial eksklusif.</div>
-          <div class="row g-3">
-            <div class="col-lg-5">
-              <div class="card-surface p-4 text-center">
-                <i class="bi bi-key" style="font-size:2rem; color:var(--accent);"></i>
-                <h6 class="fw-bold mt-2 mb-1">Tukarkan Kode Akses</h6>
-                <p class="text-secondary small mb-3">Satu kode hanya berlaku sekali untuk satu akun dosen.</p>
-                <form onsubmit="submitRedeem(event)">
-                  <input type="text" class="form-control redeem-input mb-3" id="redeemKodeInput" placeholder="EDUMEDIA-VOD-2026-X9Q" required>
-                  <button type="submit" class="btn btn-accent w-100" id="btnRedeemSubmit"><i class="bi bi-check2-circle"></i> Tukarkan Kode Sekarang</button>
-                </form>
-              </div>
+      el.innerHTML = `
+        <div class="mb-3"><span class="badge-khusus"><i class="bi bi-lock"></i> Khusus Dosen</span></div>
+        <div class="page-title mb-1">Redeem Kode Video Tutorial</div>
+        <div class="page-desc mb-4">Masukkan kode unik dari Admin untuk membuka akses video tutorial eksklusif.</div>
+        <div class="row g-3">
+          <div class="col-lg-5">
+            <div class="card-surface p-4 text-center">
+              <i class="bi bi-key" style="font-size:2rem; color:var(--accent);"></i>
+              <h6 class="fw-bold mt-2 mb-1">Tukarkan Kode Akses</h6>
+              <p class="text-secondary small mb-3">Satu kode hanya berlaku sekali untuk satu akun dosen.</p>
+              <form onsubmit="submitRedeem(event)">
+                <input type="text" class="form-control redeem-input mb-3" id="redeemKodeInput" placeholder="EDUMEDIA-VOD-2026-X9Q" required>
+                <button type="submit" class="btn btn-accent w-100" id="btnRedeemSubmit"><i class="bi bi-check2-circle"></i> Tukarkan Kode Sekarang</button>
+              </form>
             </div>
-            <div class="col-lg-7">
-              <div class="fw-semibold small mb-2">Riwayat Redeem Saya</div>
-              <div id="redeemHistoryBody"><div class="skeleton" style="height:200px;"></div></div>
-            </div>
-          </div>`;
-        AppState.initialized.redeemKode = true;
-      }
-      const cachedH = AppState.cache.redeemHistory;
-      if (cachedH) { renderRedeemHistory(cachedH); return; }
+          </div>
+          <div class="col-lg-7">
+            <div class="fw-semibold small mb-2">Riwayat Redeem Saya</div>
+            <div id="redeemHistoryBody"><div class="skeleton" style="height:200px;"></div></div>
+          </div>
+        </div>`;
       loadRedeemHistory();
     }
     
@@ -686,24 +741,21 @@
     
     function loadVideoTutorialSaya() {
       const el = document.getElementById('section-videoTutorialSaya');
-      if (!AppState.initialized.videoTutorialSaya) {
-        el.innerHTML = `
-          <div class="mb-3"><span class="badge-khusus"><i class="bi bi-lock"></i> Khusus Dosen</span></div>
-          <div class="page-title mb-1">Video Tutorial Saya</div>
-          <div class="page-desc mb-4">Seluruh video tutorial yang tersedia di Bank Video — video yang belum diredeem tampil terkunci.</div>
-          <div id="videoTutorialBody"></div>`;
-        AppState.initialized.videoTutorialSaya = true;
-      }
+      el.innerHTML = `
+        <div class="mb-3"><span class="badge-khusus"><i class="bi bi-lock"></i> Khusus Dosen</span></div>
+        <div class="page-title mb-1">Video Tutorial Saya</div>
+        <div class="page-desc mb-4">Seluruh video tutorial yang tersedia di Bank Video — video yang belum diredeem tampil terkunci.</div>
+        <div id="videoTutorialBody"></div>`;
       const cached = AppState.cache.videoTutorialSaya;
-      if (cached) { renderVideoTutorialSaya(cached); return; }
-      skeletonBlock('videoTutorialBody', 3);
+      if (cached) { renderVideoTutorialSaya(cached); } else { skeletonBlock('videoTutorialBody', 3); }
+    
       google.script.run
         .withSuccessHandler(res => {
-          if (!res.success) { handleBackendError(res); return; }
+          if (!res.success) { if (!cached) handleBackendError(res); return; }
           AppState.cache.videoTutorialSaya = res.data;
           renderVideoTutorialSaya(res.data);
         })
-        .withFailureHandler(handleBackendError)
+        .withFailureHandler(err => { if (!cached) handleBackendError(err); })
         .getSemuaVideoUntukDosen(AppState.sessionToken);
     }
     
@@ -765,32 +817,26 @@
     // ════════════════════════════════════════════════════════
     
     function loadLaporanAktivitas(periode) {
-      periode = periode || AppState._laporanPeriode || 7;
-      AppState._laporanPeriode = periode;
+      periode = periode || 7;
       const el = document.getElementById('section-laporanAktivitas');
-      if (!AppState.initialized.laporanAktivitas) {
-        el.innerHTML = pageHeaderHtml('Statistik Real-Time', 'Laporan Aktivitas', 'Pantau rekam jejak akses klik tautan media pembelajaran per rombel.',
-          `<select class="form-select form-select-sm" style="width:auto;" id="selectLaporanPeriode" onchange="loadLaporanAktivitas(this.value)">
-            <option value="7">7 Hari Terakhir</option>
-            <option value="30">30 Hari Terakhir</option>
-            <option value="90">90 Hari Terakhir</option>
-          </select>`)
-          + `<div id="laporanDosenBody"></div>`;
-        AppState.initialized.laporanAktivitas = true;
-      }
-      const sel = document.getElementById('selectLaporanPeriode');
-      if (sel) sel.value = String(periode);
+      el.innerHTML = pageHeaderHtml('Statistik Real-Time', 'Laporan Aktivitas', 'Pantau rekam jejak akses klik tautan media pembelajaran per rombel.',
+        `<select class="form-select form-select-sm" style="width:auto;" onchange="loadLaporanAktivitas(this.value)">
+          <option value="7" ${periode == 7 ? 'selected' : ''}>7 Hari Terakhir</option>
+          <option value="30" ${periode == 30 ? 'selected' : ''}>30 Hari Terakhir</option>
+          <option value="90" ${periode == 90 ? 'selected' : ''}>90 Hari Terakhir</option>
+        </select>`)
+        + `<div id="laporanDosenBody"></div>`;
       const cacheKey = 'laporanAktivitas_' + periode;
       const cached = AppState.cache[cacheKey];
-      if (cached) { renderLaporanDosen(cached); return; }
-      skeletonBlock('laporanDosenBody', 4);
+      if (cached) { renderLaporanDosen(cached); } else { skeletonBlock('laporanDosenBody', 4); }
+    
       google.script.run
         .withSuccessHandler(res => {
-          if (!res.success) { handleBackendError(res); return; }
+          if (!res.success) { if (!cached) handleBackendError(res); return; }
           AppState.cache[cacheKey] = res.data;
           renderLaporanDosen(res.data);
         })
-        .withFailureHandler(handleBackendError)
+        .withFailureHandler(err => { if (!cached) handleBackendError(err); })
         .getLaporanAktivitasDosen(AppState.sessionToken, Number(periode));
     }
     
@@ -840,22 +886,19 @@
     
     function loadTutorialTeks() {
       const el = document.getElementById('section-tutorialTeks');
-      if (!AppState.initialized.tutorialTeks) {
-        el.innerHTML = pageHeaderHtml('Panduan Penggunaan', 'Tutorial', 'Pelajari cara menggunakan seluruh fitur Portal EduMedia.', '')
-          + `<div id="tutorialTeksBody"></div>`;
-        AppState.initialized.tutorialTeks = true;
-      }
+      el.innerHTML = pageHeaderHtml('Panduan Penggunaan', 'Tutorial', 'Pelajari cara menggunakan seluruh fitur Portal EduMedia.', '')
+        + `<div id="tutorialTeksBody"></div>`;
       const cached = AppState.cache.tutorialTeks;
-      if (cached) { renderTutorialTeks(cached); return; }
-      skeletonBlock('tutorialTeksBody', 3);
+      if (cached) { renderTutorialTeks(cached); } else { skeletonBlock('tutorialTeksBody', 3); }
+    
       google.script.run
         .withSuccessHandler(res => {
-          if (!res.success) { handleBackendError(res); return; }
+          if (!res.success) { if (!cached) handleBackendError(res); return; }
           AppState.cache.tutorialTeks = res.data;
           AppState.cache.kelolaKonten = res.data;
           renderTutorialTeks(res.data);
         })
-        .withFailureHandler(handleBackendError)
+        .withFailureHandler(err => { if (!cached) handleBackendError(err); })
         .getTutorialKonten(AppState.sessionToken);
     }
     
@@ -889,21 +932,18 @@
     
     function loadAdminDashboard() {
       const el = document.getElementById('section-adminDashboard');
-      if (!AppState.initialized.adminDashboard) {
-        el.innerHTML = pageHeaderHtml('Pusat Kendali Sistem', 'Dasbor Administrator', 'Pantau distribusi media ajar dan aktivitas seluruh portal secara real-time.', '')
-          + `<div id="adminDashboardBody"></div>`;
-        AppState.initialized.adminDashboard = true;
-      }
+      el.innerHTML = pageHeaderHtml('Pusat Kendali Sistem', 'Dasbor Administrator', 'Pantau distribusi media ajar dan aktivitas seluruh portal secara real-time.', '')
+        + `<div id="adminDashboardBody"></div>`;
       const cached = AppState.cache.adminDashboard;
-      if (cached) { renderAdminDashboard(cached); return; }
-      skeletonBlock('adminDashboardBody', 4);
+      if (cached) { renderAdminDashboard(cached); } else { skeletonBlock('adminDashboardBody', 4); }
+    
       google.script.run
         .withSuccessHandler(res => {
-          if (!res.success) { handleBackendError(res); return; }
+          if (!res.success) { if (!cached) handleBackendError(res); return; }
           AppState.cache.adminDashboard = res.data;
           renderAdminDashboard(res.data);
         })
-        .withFailureHandler(handleBackendError)
+        .withFailureHandler(err => { if (!cached) handleBackendError(err); })
         .getAdminDashboardData(AppState.sessionToken);
     }
     
@@ -949,22 +989,19 @@
     
     function loadManajemenUser() {
       const el = document.getElementById('section-manajemenUser');
-      if (!AppState.initialized.manajemenUser) {
-        el.innerHTML = pageHeaderHtml('Modul Administrasi Portal', 'Manajemen User & Akses Silang', 'Kelola akun Dosen/Admin serta izin akses silang katalog.',
-          `<button class="btn btn-accent" onclick="openUserForm()"><i class="bi bi-person-plus"></i> Tambah Pengguna</button>`)
-          + `<div id="manajemenUserBody"></div>`;
-        AppState.initialized.manajemenUser = true;
-      }
+      el.innerHTML = pageHeaderHtml('Modul Administrasi Portal', 'Manajemen User & Akses Silang', 'Kelola akun Dosen/Admin serta izin akses silang katalog.',
+        `<button class="btn btn-accent" onclick="openUserForm()"><i class="bi bi-person-plus"></i> Tambah Pengguna</button>`)
+        + `<div id="manajemenUserBody"></div>`;
       const cached = AppState.cache.users;
-      if (cached) { renderManajemenUser(cached); return; }
-      skeletonBlock('manajemenUserBody', 4);
+      if (cached) { renderManajemenUser(cached); } else { skeletonBlock('manajemenUserBody', 4); }
+    
       google.script.run
         .withSuccessHandler(res => {
-          if (!res.success) { handleBackendError(res); return; }
+          if (!res.success) { if (!cached) handleBackendError(res); return; }
           AppState.cache.users = res.data;
           renderManajemenUser(res.data);
         })
-        .withFailureHandler(handleBackendError)
+        .withFailureHandler(err => { if (!cached) handleBackendError(err); })
         .getAllUsers(AppState.sessionToken);
     }
     
@@ -1047,7 +1084,6 @@
           if (!res.success) return handleBackendError(res);
           bootstrap.Modal.getInstance(document.getElementById('modalUserForm')).hide();
           showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.users;
           loadManajemenUser();
         })
         .withFailureHandler(handleBackendError)
@@ -1062,7 +1098,6 @@
             bootstrap.Modal.getInstance(document.getElementById('modalConfirm')).hide();
             if (!res.success) return handleBackendError(res);
             showToast('Berhasil', res.message, 'success');
-            delete AppState.cache.users;
             loadManajemenUser();
           })
           .withFailureHandler(handleBackendError)
@@ -1077,22 +1112,19 @@
     
     function loadBankVideoTutorial() {
       const el = document.getElementById('section-bankVideoTutorial');
-      if (!AppState.initialized.bankVideoTutorial) {
-        el.innerHTML = pageHeaderHtml('Modul Administrasi', 'Bank Video Tutorial &amp; Manajemen Kode Redeem', 'Kelola repositori video panduan untuk dosen dan generate kode redeem unik.',
-          `<button class="btn btn-accent" onclick="openAddVideoModal()"><i class="bi bi-plus-lg"></i> Tambah Video Baru</button>`)
-          + `<div id="bankVideoBody"></div>`;
-        AppState.initialized.bankVideoTutorial = true;
-      }
+      el.innerHTML = pageHeaderHtml('Modul Administrasi', 'Bank Video Tutorial &amp; Manajemen Kode Redeem', 'Kelola repositori video panduan untuk dosen dan generate kode redeem unik.',
+        `<button class="btn btn-accent" onclick="openAddVideoModal()"><i class="bi bi-plus-lg"></i> Tambah Video Baru</button>`)
+        + `<div id="bankVideoBody"></div>`;
       const cached = AppState.cache.bankVideo;
-      if (cached) { renderBankVideo(cached); return; }
-      skeletonBlock('bankVideoBody', 4);
+      if (cached) { renderBankVideo(cached); } else { skeletonBlock('bankVideoBody', 4); }
+    
       google.script.run
         .withSuccessHandler(res => {
-          if (!res.success) { handleBackendError(res); return; }
+          if (!res.success) { if (!cached) handleBackendError(res); return; }
           AppState.cache.bankVideo = res.data;
           renderBankVideo(res.data);
         })
-        .withFailureHandler(handleBackendError)
+        .withFailureHandler(err => { if (!cached) handleBackendError(err); })
         .getBankVideo(AppState.sessionToken);
     }
     
@@ -1164,7 +1196,6 @@
           if (!res.success) { showToast('Gagal', res.message, 'danger'); return; }
           bootstrap.Modal.getInstance(document.getElementById('modalAddVideo')).hide();
           showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.bankVideo;
           loadBankVideoTutorial();
         })
         .withFailureHandler(handleBackendError)
@@ -1173,12 +1204,7 @@
     
     function toggleVideoStatus(id) {
       google.script.run
-        .withSuccessHandler(res => {
-          if (!res.success) return handleBackendError(res);
-          showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.bankVideo;
-          loadBankVideoTutorial();
-        })
+        .withSuccessHandler(res => { if (!res.success) return handleBackendError(res); showToast('Berhasil', res.message, 'success'); loadBankVideoTutorial(); })
         .withFailureHandler(handleBackendError)
         .toggleVideoStatus(AppState.sessionToken, id);
     }
@@ -1204,7 +1230,6 @@
           document.getElementById('generateKodeResultBox').style.display = 'block';
           document.getElementById('generateKodeResultText').textContent = res.data.kode;
           showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.bankVideo;
           loadBankVideoTutorial();
         })
         .withFailureHandler(err => { btn.innerHTML = original; btn.disabled = false; handleBackendError(err); })
@@ -1221,23 +1246,21 @@
     
     function loadKelolaKontenTutorial() {
       const el = document.getElementById('section-kelolaKontenTutorial');
-      if (!AppState.initialized.kelolaKontenTutorial) {
-        el.innerHTML = pageHeaderHtml('Manajemen Konten Panduan', 'Kelola Konten Tutorial', 'Kelola artikel panduan yang tampil di halaman Tutorial untuk seluruh Dosen.',
-          `<button class="btn btn-accent" onclick="openTutorialForm()"><i class="bi bi-plus-lg"></i> Tulis Panduan Baru</button>`)
-          + `<div id="kelolaKontenBody"></div>`;
-        AppState.initialized.kelolaKontenTutorial = true;
-      }
+      el.innerHTML = pageHeaderHtml('Manajemen Konten Panduan', 'Kelola Konten Tutorial', 'Kelola artikel panduan yang tampil di halaman Tutorial untuk seluruh Dosen.',
+        `<button class="btn btn-accent" onclick="openTutorialForm()"><i class="bi bi-plus-lg"></i> Tulis Panduan Baru</button>`)
+        + `<div id="kelolaKontenBody"></div>`;
       const cached = AppState.cache.kelolaKonten;
-      if (cached) { renderKelolaKonten(cached); return; }
-      skeletonBlock('kelolaKontenBody', 3);
+      if (cached) { renderKelolaKonten(cached); } else { skeletonBlock('kelolaKontenBody', 3); }
+    
       google.script.run
         .withSuccessHandler(res => {
-          if (!res.success) { handleBackendError(res); return; }
+          if (!res.success) { if (!cached) handleBackendError(res); return; }
           AppState.cache.kelolaKonten = res.data;
+          // Tutorial Teks (Dosen) memakai data yang sama — sinkronkan agar tetap konsisten
           AppState.cache.tutorialTeks = res.data;
           renderKelolaKonten(res.data);
         })
-        .withFailureHandler(handleBackendError)
+        .withFailureHandler(err => { if (!cached) handleBackendError(err); })
         .getTutorialKonten(AppState.sessionToken);
     }
     
@@ -1286,8 +1309,6 @@
           if (!res.success) return handleBackendError(res);
           bootstrap.Modal.getInstance(document.getElementById('modalTutorialForm')).hide();
           showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.kelolaKonten;
-          delete AppState.cache.tutorialTeks;
           loadKelolaKontenTutorial();
         })
         .withFailureHandler(handleBackendError)
@@ -1302,8 +1323,6 @@
             bootstrap.Modal.getInstance(document.getElementById('modalConfirm')).hide();
             if (!res.success) return handleBackendError(res);
             showToast('Berhasil', res.message, 'success');
-            delete AppState.cache.kelolaKonten;
-            delete AppState.cache.tutorialTeks;
             loadKelolaKontenTutorial();
           })
           .withFailureHandler(handleBackendError)
@@ -1318,26 +1337,18 @@
     
     function loadLaporanGlobal() {
       const el = document.getElementById('section-laporanGlobal');
-      if (!AppState.initialized.laporanGlobal) {
-        el.innerHTML = pageHeaderHtml('Modul Administrasi', 'Laporan Aktivitas Global', 'Rekapitulasi komprehensif akses media interaktif seluruh dosen dan kelas.', '')
-          + `<div class="row g-2 mb-3">
-              <div class="col-auto">
-                <select class="form-select form-select-sm" id="filterGlobalDosen" onchange="loadLaporanGlobalData()"><option value="">Semua Dosen</option></select>
-              </div>
-              <div class="col-auto">
-                <select class="form-select form-select-sm" id="filterGlobalPeriode" onchange="loadLaporanGlobalData()">
-                  <option value="7">7 Hari</option><option value="30" selected>30 Hari</option><option value="90">90 Hari</option>
-                </select>
-              </div>
-            </div>`
-          + `<div id="laporanGlobalBody"></div>`;
-        AppState.initialized.laporanGlobal = true;
-      }
-      const idDosen = (document.getElementById('filterGlobalDosen') || {}).value || '';
-      const periodeHari = Number((document.getElementById('filterGlobalPeriode') || {}).value) || 30;
-      const cacheKey = 'laporanGlobal_' + idDosen + '_' + periodeHari;
-      const cached = AppState.cache[cacheKey];
-      if (cached) { renderLaporanGlobal(cached); return; }
+      el.innerHTML = pageHeaderHtml('Modul Administrasi', 'Laporan Aktivitas Global', 'Rekapitulasi komprehensif akses media interaktif seluruh dosen dan kelas.', '')
+        + `<div class="row g-2 mb-3">
+            <div class="col-auto">
+              <select class="form-select form-select-sm" id="filterGlobalDosen" onchange="loadLaporanGlobalData()"><option value="">Semua Dosen</option></select>
+            </div>
+            <div class="col-auto">
+              <select class="form-select form-select-sm" id="filterGlobalPeriode" onchange="loadLaporanGlobalData()">
+                <option value="7">7 Hari</option><option value="30" selected>30 Hari</option><option value="90">90 Hari</option>
+              </select>
+            </div>
+          </div>`
+        + `<div id="laporanGlobalBody"></div>`;
       loadLaporanGlobalData();
     }
     
