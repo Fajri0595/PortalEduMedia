@@ -204,7 +204,7 @@
             </button>
           </div>
         </div>
-      `).join('') : `<div class="empty-state" style="grid-column:1/-1;"><i class="bi bi-inbox"></i><p class="mt-2">Belum ada materi dibagikan untuk kelas ini.</p></div>`;
+      `).join('') : `<div class="empty-state" style="width:100%;"><i class="bi bi-inbox"></i><p class="mt-2">Belum ada materi dibagikan untuk kelas ini.</p></div>`;
     
       document.getElementById('guestContent').innerHTML = `
         <div class="guest-header">
