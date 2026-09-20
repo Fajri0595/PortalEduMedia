@@ -21,24 +21,14 @@
  */
 
 // Action yang dibaca via GET (read-only, tanpa efek samping di server)
-// CATATAN: doLogin & doLogout juga dikirim via GET untuk menghindari masalah
-// redirect 302 CORS yang terjadi saat fetch() POST ke GAS dari origin eksternal
-// (GitHub Pages). GAS me-redirect semua POST ke URL baru; browser memblokir
-// redirect itu karena CORS sehingga fetch() tidak pernah resolve → login hang
-// tanpa memanggil successHandler maupun failureHandler. GET tidak mengalami
-// masalah ini karena GAS mengembalikan respons langsung tanpa redirect.
 const GAS_GET_ACTIONS = new Set([
   'checkSession', 'getAppUrl', 'getGuestCatalog', 'getKatalogSaya', 'getKelasSaya',
   'getKelasDetail', 'getVideoTutorialSaya', 'getSemuaVideoUntukDosen',
   'getLaporanAktivitasDosen', 'getTutorialKonten', 'getAdminDashboardData',
-  'getAllUsers', 'getBankVideo', 'getLaporanGlobal',
-  // Write actions kecil yang amannya via GET (tidak ada body besar):
-  'doLogin', 'doLogout', 'recordLinkClick', 'recordVideoView',
-  'toggleVideoStatus', 'redeemVideoCode', 'generateKodeRedeem', 'regenerateToken'
+  'getAllUsers', 'getBankVideo', 'getLaporanGlobal'
 ]);
-// Action besar (ada body/record object) tetap via POST — lihat gasCall().
-// POST requests menggunakan redirect:'follow' + mode:'cors' untuk menangani
-// redirect 302 GAS secara otomatis.
+// Sisanya (login, save*, delete*, create*, redeem, regenerate, toggle, record*)
+// otomatis dikirim via POST — lihat gasCall().
 
 // Nama parameter positional per action (urutan HARUS sama dengan signature
 // fungsi backend di Kode.gs), supaya argumen posisional gaya
@@ -65,8 +55,10 @@ const GAS_ACTION_PARAMS = {
   saveKatalogLink: ['token', 'record'],
   deleteKatalogLink: ['token', 'id'],
   createKelas: ['token', 'namaKelas', 'jumlahMahasiswa'],
+  updateKelas: ['token', 'idKelas', 'namaKelas', 'jumlahMahasiswa'],
   saveDistribusiKelas: ['token', 'idKelas', 'selectedLinkIds'],
   regenerateToken: ['token', 'idKelas'],
+  deleteKelas: ['token', 'idKelas'],
   redeemVideoCode: ['token', 'kode'],
   recordVideoView: ['token', 'idVideo'],
   saveTutorialKonten: ['token', 'record'],
@@ -92,22 +84,19 @@ function gasCall(action, args, successHandler, failureHandler) {
     try {
       let res;
       if (GAS_GET_ACTIONS.has(action)) {
-        // GET: GAS mengembalikan JSON langsung tanpa redirect → aman untuk CORS
         const qs = new URLSearchParams({ action });
         (paramNames || []).forEach(name => {
           const val = payload[name];
           if (val === undefined || val === null) return;
           qs.set(name, typeof val === 'object' ? JSON.stringify(val) : String(val));
         });
-        res = await fetch(GAS_URL + '?' + qs.toString(), { redirect: 'follow' });
+        res = await fetch(GAS_URL + '?' + qs.toString());
       } else {
-        // POST: WAJIB text/plain (bukan application/json) supaya tidak memicu
-        // preflight OPTIONS. GAS akan redirect 302 → redirect:'follow' memastikan
-        // fetch() mengikuti redirect dan tidak hang.
         res = await fetch(GAS_URL, {
           method: 'POST',
+          // WAJIB text/plain — Content-Type: application/json memicu CORS
+          // preflight (OPTIONS) yang tidak ditangani dengan baik oleh GAS.
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          redirect: 'follow',
           body: JSON.stringify({ action, data: payload })
         });
       }
