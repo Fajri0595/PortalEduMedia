@@ -418,10 +418,11 @@
           <td class="text-secondary small">${l.kelasTerhubung.length ? l.kelasTerhubung.map(k => escapeHtml(k)).join(', ') : '<span class="text-muted">Belum ada kelas</span>'}</td>
           <td><span class="badge-status ${l.status === 'Aktif' ? 'badge-success' : 'badge-warning'}">${l.status}</span></td>
           <td class="text-end">
+            <a href="${escapeHtml(l.tautan)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-navy me-1" title="Buka media di tab baru"><i class="bi bi-box-arrow-up-right"></i></a>
             ${l.isMilikSendiri ? `
             <button class="btn btn-sm btn-outline-navy me-1" onclick='openLinkForm(${JSON.stringify(l).replace(/'/g, "&apos;")})'><i class="bi bi-pencil"></i></button>
             <button class="btn btn-sm btn-outline-secondary" onclick="confirmDeleteLink('${l.id}', '${escapeHtml(l.judul).replace(/'/g, "\\'")}')"><i class="bi bi-trash text-danger"></i></button>
-            ` : `<span class="text-muted small">—</span>`}
+            ` : ''}
           </td>
         </tr>
       `).join('');
@@ -595,7 +596,9 @@
               <code class="small text-break">${escapeHtml(publicUrl)}</code>
             </div>
             <button class="btn btn-sm btn-navy me-1" onclick="copyToClipboard('${escapeHtml(publicUrl).replace(/'/g, "\\'")}')"><i class="bi bi-clipboard"></i> Salin Link Kelas</button>
-            <button class="btn btn-sm btn-outline-navy" onclick="regenToken('${data.id}')"><i class="bi bi-arrow-repeat"></i> Generate Ulang Token</button>
+            <button class="btn btn-sm btn-outline-navy me-1" onclick="regenToken('${data.id}')"><i class="bi bi-arrow-repeat"></i> Generate Ulang Token</button>
+            <button class="btn btn-sm btn-outline-navy me-1" onclick="promptEditKelas('${data.id}', '${escapeHtml(data.namaKelas).replace(/'/g, "\\'")}', ${Number(data.jumlahMahasiswa) || 0})"><i class="bi bi-pencil"></i> Edit Rombel</button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteKelasHandler('${data.id}', '${escapeHtml(data.namaKelas).replace(/'/g, "\\'")}')"><i class="bi bi-trash3"></i> Hapus Rombel</button>
           </div>
     
           <div class="fw-semibold small mb-2">Pilih Media yang Ditampilkan di Kelas Ini</div>
@@ -632,6 +635,23 @@
         .createKelas(AppState.sessionToken, nama, Number(jumlah) || 0);
     }
     
+    function promptEditKelas(idKelas, namaSaatIni, jumlahSaatIni) {
+      const nama = prompt('Ubah nama Rombel / Kelas:', namaSaatIni);
+      if (!nama) return;
+      const jumlah = prompt('Ubah jumlah mahasiswa terdaftar:', jumlahSaatIni);
+    
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res.success) return handleBackendError(res);
+          showToast('Berhasil', res.message, 'success');
+          delete AppState.cache.kelasSaya;
+          if (AppState.cache.kelasDetail) delete AppState.cache.kelasDetail[idKelas];
+          loadManajemenKelas();
+        })
+        .withFailureHandler(handleBackendError)
+        .updateKelas(AppState.sessionToken, idKelas, nama, Number(jumlah) || 0);
+    }
+    
     function saveDistribusi(idKelas) {
       const ids = Array.from(document.querySelectorAll('[data-kelas-checkbox]:checked')).map(el => el.value);
       google.script.run
@@ -656,6 +676,23 @@
         })
         .withFailureHandler(handleBackendError)
         .regenerateToken(AppState.sessionToken, idKelas);
+    }
+    
+    function deleteKelasHandler(idKelas, namaKelas) {
+      if (!confirm(`Hapus rombel "${namaKelas}"? Link akses mahasiswa untuk rombel ini akan langsung tidak berlaku. Tindakan ini tidak bisa dibatalkan.`)) return;
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res.success) return handleBackendError(res);
+          showToast('Berhasil', res.message, 'success');
+          // Bersihkan cache supaya rombel yang baru dihapus tidak sempat tampil
+          // sekilas (stale) sebelum daftar disegarkan.
+          delete AppState.cache.kelasSaya;
+          if (AppState.cache.kelasDetail) delete AppState.cache.kelasDetail[idKelas];
+          selectedKelasId = null;
+          loadManajemenKelas();
+        })
+        .withFailureHandler(handleBackendError)
+        .deleteKelas(AppState.sessionToken, idKelas);
     }
     
     // ════════════════════════════════════════════════════════
