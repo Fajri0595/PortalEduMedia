@@ -25,7 +25,7 @@ const GAS_GET_ACTIONS = new Set([
   'checkSession', 'getAppUrl', 'getGuestCatalog', 'getKatalogSaya', 'getKelasSaya',
   'getKelasDetail', 'getVideoTutorialSaya', 'getSemuaVideoUntukDosen',
   'getLaporanAktivitasDosen', 'getTutorialKonten', 'getAdminDashboardData',
-  'getAllUsers', 'getBankVideo', 'getLaporanGlobal'
+  'getAllUsers', 'getBankVideo', 'getLaporanGlobal', 'getKatalogSemuaDosen', 'getKelasSemuaDosen'
 ]);
 // Sisanya (login, save*, delete*, create*, redeem, regenerate, toggle, record*)
 // otomatis dikirim via POST — lihat gasCall().
@@ -48,6 +48,9 @@ const GAS_ACTION_PARAMS = {
   getAllUsers: ['token'],
   getBankVideo: ['token'],
   getLaporanGlobal: ['token', 'filters'],
+  getKatalogSemuaDosen: ['token'],
+  getKelasSemuaDosen: ['token'],
+  toggleKatalogLinkStatus: ['token', 'id'],
   doLogin: ['identifier', 'password'],
   loginWithGoogle: [],
   doLogout: ['token'],
