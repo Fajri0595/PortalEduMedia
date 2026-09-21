@@ -73,7 +73,8 @@
       katalogSaya: 'Katalog Saya', manajemenKelas: 'Manajemen Kelas', laporanAktivitas: 'Laporan Aktivitas',
       tutorialTeks: 'Tutorial Penggunaan', redeemKode: 'Redeem Kode Video Tutorial', videoTutorialSaya: 'Video Tutorial Saya',
       adminDashboard: 'Admin Dashboard', manajemenUser: 'Manajemen User & Akses Silang',
-      bankVideoTutorial: 'Bank Video Tutorial', kelolaKontenTutorial: 'Kelola Konten Tutorial', laporanGlobal: 'Laporan Aktivitas Global'
+      bankVideoTutorial: 'Bank Video Tutorial', kelolaKontenTutorial: 'Kelola Konten Tutorial', laporanGlobal: 'Laporan Aktivitas Global',
+      monitoringKatalogKelas: 'Monitoring Katalog & Kelas'
     };
     
     // ════════════════════════════════════════════════════════
@@ -115,6 +116,7 @@
       AppState.sessionToken = data.token; AppState.role = data.role; AppState.nama = data.nama; AppState.id = data.id; AppState.email = data.email;
       applyUserChip();
       document.getElementById('navGroupAdmin').style.display = AppState.role === 'Admin' ? 'block' : 'none';
+      document.getElementById('navGroupDosen').style.display = AppState.role === 'Admin' ? 'none' : 'block';
       showView('app');
       const lastSection = sessionStorage.getItem('em_last_section');
       navigateTo(lastSection && SECTION_TITLES[lastSection] ? lastSection : data.landingPage);
@@ -265,6 +267,7 @@
       sessionStorage.setItem('em_token', res.data.token); // FIX: bertahan saat refresh, tidak pernah masuk ke URL
       applyUserChip();
       document.getElementById('navGroupAdmin').style.display = AppState.role === 'Admin' ? 'block' : 'none';
+      document.getElementById('navGroupDosen').style.display = AppState.role === 'Admin' ? 'none' : 'block';
       showView('app');
       showToast('Selamat Datang', `Halo, ${res.data.nama}!`, 'success');
       navigateTo(res.data.landingPage);
@@ -311,7 +314,8 @@
         katalogSaya: loadKatalogSaya, manajemenKelas: loadManajemenKelas, laporanAktivitas: loadLaporanAktivitas,
         tutorialTeks: loadTutorialTeks, redeemKode: loadRedeemKode, videoTutorialSaya: loadVideoTutorialSaya,
         adminDashboard: loadAdminDashboard, manajemenUser: loadManajemenUser, bankVideoTutorial: loadBankVideoTutorial,
-        kelolaKontenTutorial: loadKelolaKontenTutorial, laporanGlobal: loadLaporanGlobal
+        kelolaKontenTutorial: loadKelolaKontenTutorial, laporanGlobal: loadLaporanGlobal,
+        monitoringKatalogKelas: loadMonitoringKatalogKelas
       };
       if (loaders[section]) loaders[section]();
     }
@@ -1425,6 +1429,133 @@
         </table></div></div>`;
     
       renderBarChart('chartGlobalKelas', data.perKelas, 'Klik');
+    }
+    
+    // ════════════════════════════════════════════════════════
+    // BAGIAN 17b: MONITORING KATALOG & KELAS (Admin) — pengganti
+    // Katalog Saya/Manajemen Kelas pribadi Admin. Melihat & mengontrol
+    // seluruh katalog+kelas SEMUA dosen dari satu tempat.
+    // ════════════════════════════════════════════════════════
+    
+    function loadMonitoringKatalogKelas() {
+      const el = document.getElementById('section-monitoringKatalogKelas');
+      el.innerHTML = pageHeaderHtml('Kontrol Terpusat', 'Monitoring Katalog & Kelas', 'Pantau dan kelola seluruh materi serta rombel dari semua dosen di satu tempat.', '')
+        + `<ul class="nav nav-tabs mb-3" id="monitoringTabs">
+             <li class="nav-item"><button class="nav-link active" data-tab="katalog" onclick="switchMonitoringTab('katalog')">Semua Katalog Media</button></li>
+             <li class="nav-item"><button class="nav-link" data-tab="kelas" onclick="switchMonitoringTab('kelas')">Semua Rombel/Kelas</button></li>
+           </ul>
+           <div id="monitoringTabKatalog"><div id="monitoringKatalogBody"></div></div>
+           <div id="monitoringTabKelas" style="display:none;"><div id="monitoringKelasBody"></div></div>`;
+    
+      const cachedKatalog = AppState.cache.monitoringKatalog;
+      const cachedKelas = AppState.cache.monitoringKelas;
+      if (cachedKatalog) { renderMonitoringKatalog(cachedKatalog); } else { skeletonBlock('monitoringKatalogBody', 4); }
+      if (cachedKelas) { renderMonitoringKelas(cachedKelas); } else { skeletonBlock('monitoringKelasBody', 3); }
+    
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res.success) { if (!cachedKatalog) handleBackendError(res); return; }
+          AppState.cache.monitoringKatalog = res.data;
+          renderMonitoringKatalog(res.data);
+        })
+        .withFailureHandler(err => { if (!cachedKatalog) handleBackendError(err); })
+        .getKatalogSemuaDosen(AppState.sessionToken);
+    
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res.success) { if (!cachedKelas) handleBackendError(res); return; }
+          AppState.cache.monitoringKelas = res.data;
+          renderMonitoringKelas(res.data);
+        })
+        .withFailureHandler(err => { if (!cachedKelas) handleBackendError(err); })
+        .getKelasSemuaDosen(AppState.sessionToken);
+    }
+    
+    function switchMonitoringTab(tab) {
+      document.querySelectorAll('#monitoringTabs .nav-link').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      document.getElementById('monitoringTabKatalog').style.display = tab === 'katalog' ? 'block' : 'none';
+      document.getElementById('monitoringTabKelas').style.display = tab === 'kelas' ? 'block' : 'none';
+    }
+    
+    function renderMonitoringKatalog(list) {
+      const body = document.getElementById('monitoringKatalogBody');
+      if (!body) return;
+      if (!list.length) { body.innerHTML = `<div class="empty-state"><i class="bi bi-inbox"></i><p class="mt-2">Belum ada materi dari dosen mana pun.</p></div>`; return; }
+      body.innerHTML = `<div class="table-wrap"><div class="table-responsive"><table class="app-table">
+        <thead><tr><th>Dosen Pemilik</th><th>Judul Materi</th><th>Kategori</th><th>Kelas Terhubung</th><th>Status</th><th class="text-end">Aksi</th></tr></thead>
+        <tbody>${list.map(l => `
+          <tr>
+            <td class="small">${escapeHtml(l.namaPemilik)}</td>
+            <td class="fw-semibold small">${escapeHtml(l.judul)}</td>
+            <td class="small text-secondary">${escapeHtml(l.kategori)}</td>
+            <td class="small text-secondary">${l.kelasTerhubung.length ? escapeHtml(l.kelasTerhubung.join(', ')) : '—'}</td>
+            <td><span class="badge-status ${l.status === 'Aktif' ? 'badge-success' : 'badge-warning'}">${l.status}</span></td>
+            <td class="text-end">
+              <a href="${escapeHtml(l.tautan)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-navy me-1" title="Buka media di tab baru"><i class="bi bi-box-arrow-up-right"></i></a>
+              <button class="btn btn-sm ${l.status === 'Aktif' ? 'btn-outline-secondary' : 'btn-outline-success'}" onclick="toggleKatalogStatusAdmin('${l.id}')" title="${l.status === 'Aktif' ? 'Nonaktifkan' : 'Aktifkan'} materi ini"><i class="bi bi-power"></i></button>
+            </td>
+          </tr>`).join('')}</tbody>
+      </table></div></div>`;
+    }
+    
+    function toggleKatalogStatusAdmin(id) {
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res.success) return handleBackendError(res);
+          showToast('Berhasil', res.message, 'success');
+          delete AppState.cache.monitoringKatalog;
+          loadMonitoringKatalogKelas();
+        })
+        .withFailureHandler(handleBackendError)
+        .toggleKatalogLinkStatus(AppState.sessionToken, id);
+    }
+    
+    function renderMonitoringKelas(list) {
+      const body = document.getElementById('monitoringKelasBody');
+      if (!body) return;
+      if (!list.length) { body.innerHTML = `<div class="empty-state"><i class="bi bi-inbox"></i><p class="mt-2">Belum ada rombel dari dosen mana pun.</p></div>`; return; }
+      body.innerHTML = `<div class="table-wrap"><div class="table-responsive"><table class="app-table">
+        <thead><tr><th>Dosen Pengampu</th><th>Nama Rombel</th><th>Mahasiswa</th><th>Media Terpilih</th><th>Status</th><th class="text-end">Aksi</th></tr></thead>
+        <tbody>${list.map(k => `
+          <tr>
+            <td class="small">${escapeHtml(k.namaPengampu)}</td>
+            <td class="fw-semibold small">${escapeHtml(k.namaKelas)}</td>
+            <td class="small text-secondary">${k.jumlahMahasiswa}</td>
+            <td class="small text-secondary">${k.jumlahMediaTerpilih} media</td>
+            <td><span class="badge-status ${k.status === 'Aktif' ? 'badge-success' : 'badge-warning'}">${k.status}</span></td>
+            <td class="text-end">
+              <button class="btn btn-sm btn-outline-navy me-1" onclick="copyToClipboard('${escapeHtml(AppState.baseUrl + '?token=' + k.token)}')" title="Salin link kelas"><i class="bi bi-clipboard"></i></button>
+              <button class="btn btn-sm btn-outline-navy me-1" onclick="adminRegenToken('${k.id}')" title="Generate ulang token"><i class="bi bi-arrow-repeat"></i></button>
+              <button class="btn btn-sm btn-outline-danger" onclick="adminDeleteKelas('${k.id}', '${escapeHtml(k.namaKelas).replace(/'/g, "\\'")}')" title="Hapus rombel"><i class="bi bi-trash3"></i></button>
+            </td>
+          </tr>`).join('')}</tbody>
+      </table></div></div>`;
+    }
+    
+    function adminRegenToken(idKelas) {
+      if (!confirm('Token lama akan langsung tidak berlaku. Lanjutkan?')) return;
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res.success) return handleBackendError(res);
+          showToast('Berhasil', res.message, 'success');
+          delete AppState.cache.monitoringKelas;
+          loadMonitoringKatalogKelas();
+        })
+        .withFailureHandler(handleBackendError)
+        .regenerateToken(AppState.sessionToken, idKelas);
+    }
+    
+    function adminDeleteKelas(idKelas, namaKelas) {
+      if (!confirm(`Hapus rombel "${namaKelas}"? Link akses mahasiswa untuk rombel ini akan langsung tidak berlaku. Tindakan ini tidak bisa dibatalkan.`)) return;
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res.success) return handleBackendError(res);
+          showToast('Berhasil', res.message, 'success');
+          delete AppState.cache.monitoringKelas;
+          loadMonitoringKatalogKelas();
+        })
+        .withFailureHandler(handleBackendError)
+        .deleteKelas(AppState.sessionToken, idKelas);
     }
     
     // ════════════════════════════════════════════════════════
