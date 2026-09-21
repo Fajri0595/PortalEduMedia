@@ -35,11 +35,11 @@
       <form id="loginForm" onsubmit="handleLogin(event)" class="mt-1">
         <div class="mb-3">
           <label class="form-label small fw-semibold">NIDN / Email Institusi</label>
-          <input type="text" class="form-control" id="loginIdentifier" placeholder="Masukkan Email" required autocomplete="username">
+          <input type="text" class="form-control" id="loginIdentifier" placeholder="contoh: siti@univ.ac.id" required autocomplete="username">
         </div>
         <div class="mb-3">
           <label class="form-label small fw-semibold">Kata Sandi</label>
-          <input type="password" class="form-control" id="loginPassword" placeholder="Masukkan kata sandi" required autocomplete="current-password">
+          <input type="password" class="form-control" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
         </div>
         <button type="submit" class="btn btn-accent w-100 py-2">
           <i class="bi bi-box-arrow-in-right"></i> Masuk ke Akun
@@ -80,24 +80,31 @@
       </div>
 
       <div class="sidebar-scroll">
-        <div class="nav-group-label">Utama</div>
-        <ul class="sidebar-nav">
-          <li><a href="javascript:void(0)" onclick="navigateTo('katalogSaya')" class="nav-link" data-section="katalogSaya"><i class="bi bi-grid-1x2"></i><span>Katalog Saya</span></a></li>
-          <li><a href="javascript:void(0)" onclick="navigateTo('manajemenKelas')" class="nav-link" data-section="manajemenKelas"><i class="bi bi-mortarboard"></i><span>Manajemen Kelas</span></a></li>
-          <li><a href="javascript:void(0)" onclick="navigateTo('laporanAktivitas')" class="nav-link" data-section="laporanAktivitas"><i class="bi bi-graph-up-arrow"></i><span>Laporan Aktivitas</span></a></li>
-          <li><a href="javascript:void(0)" onclick="navigateTo('tutorialTeks')" class="nav-link" data-section="tutorialTeks"><i class="bi bi-journal-bookmark"></i><span>Tutorial</span></a></li>
-        </ul>
+        <div id="navGroupDosen">
+          <div class="nav-group-label">Utama</div>
+          <ul class="sidebar-nav">
+            <li><a href="javascript:void(0)" onclick="navigateTo('katalogSaya')" class="nav-link" data-section="katalogSaya"><i class="bi bi-grid-1x2"></i><span>Katalog Saya</span></a></li>
+            <li><a href="javascript:void(0)" onclick="navigateTo('manajemenKelas')" class="nav-link" data-section="manajemenKelas"><i class="bi bi-mortarboard"></i><span>Manajemen Kelas</span></a></li>
+            <li><a href="javascript:void(0)" onclick="navigateTo('laporanAktivitas')" class="nav-link" data-section="laporanAktivitas"><i class="bi bi-graph-up-arrow"></i><span>Laporan Aktivitas</span></a></li>
+          </ul>
 
-        <div class="nav-group-label">Modul Khusus Dosen</div>
+          <div class="nav-group-label">Modul Khusus Dosen</div>
+          <ul class="sidebar-nav">
+            <li><a href="javascript:void(0)" onclick="navigateTo('redeemKode')" class="nav-link" data-section="redeemKode"><i class="bi bi-key"></i><span>Redeem Kode</span></a></li>
+            <li><a href="javascript:void(0)" onclick="navigateTo('videoTutorialSaya')" class="nav-link" data-section="videoTutorialSaya"><i class="bi bi-play-circle"></i><span>Video Tutorial Saya</span></a></li>
+          </ul>
+        </div>
+
+        <div class="nav-group-label">Panduan</div>
         <ul class="sidebar-nav">
-          <li><a href="javascript:void(0)" onclick="navigateTo('redeemKode')" class="nav-link" data-section="redeemKode"><i class="bi bi-key"></i><span>Redeem Kode</span></a></li>
-          <li><a href="javascript:void(0)" onclick="navigateTo('videoTutorialSaya')" class="nav-link" data-section="videoTutorialSaya"><i class="bi bi-play-circle"></i><span>Video Tutorial Saya</span></a></li>
+          <li><a href="javascript:void(0)" onclick="navigateTo('tutorialTeks')" class="nav-link" data-section="tutorialTeks"><i class="bi bi-journal-bookmark"></i><span>Tutorial</span></a></li>
         </ul>
 
         <div id="navGroupAdmin" style="display:none;">
           <div class="nav-group-label">Administrasi</div>
           <ul class="sidebar-nav">
             <li><a href="javascript:void(0)" onclick="navigateTo('adminDashboard')" class="nav-link" data-section="adminDashboard"><i class="bi bi-speedometer2"></i><span>Admin Dashboard</span></a></li>
+            <li><a href="javascript:void(0)" onclick="navigateTo('monitoringKatalogKelas')" class="nav-link" data-section="monitoringKatalogKelas"><i class="bi bi-diagram-3"></i><span>Monitoring Katalog &amp; Kelas</span></a></li>
             <li><a href="javascript:void(0)" onclick="navigateTo('bankVideoTutorial')" class="nav-link" data-section="bankVideoTutorial"><i class="bi bi-collection-play"></i><span>Bank Video Tutorial</span></a></li>
             <li><a href="javascript:void(0)" onclick="navigateTo('manajemenUser')" class="nav-link" data-section="manajemenUser"><i class="bi bi-people"></i><span>Manajemen User</span></a></li>
             <li><a href="javascript:void(0)" onclick="navigateTo('kelolaKontenTutorial')" class="nav-link" data-section="kelolaKontenTutorial"><i class="bi bi-pencil-square"></i><span>Kelola Konten Tutorial</span></a></li>
@@ -137,6 +144,7 @@
         <section id="section-redeemKode" class="content-section"></section>
         <section id="section-videoTutorialSaya" class="content-section"></section>
         <section id="section-adminDashboard" class="content-section"></section>
+        <section id="section-monitoringKatalogKelas" class="content-section"></section>
         <section id="section-manajemenUser" class="content-section"></section>
         <section id="section-bankVideoTutorial" class="content-section"></section>
         <section id="section-kelolaKontenTutorial" class="content-section"></section>
