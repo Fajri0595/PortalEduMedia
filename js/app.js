@@ -1186,11 +1186,12 @@
         <tr>
           <td><img class="table-thumb" src="${escapeHtml(v.thumbnail || '')}" alt=""></td>
           <td class="fw-semibold small">${escapeHtml(v.judul)}${v.lampiran && v.lampiran.length ? ` <span class="badge-status badge-info">${v.lampiran.length} lampiran</span>` : ''}</td>
-          <td><span class="badge-status ${v.sumber === 'YouTube' ? 'badge-danger' : 'badge-info'}">${v.sumber}</span></td>
+          <td><span class="badge-status ${v.sumber === 'YouTube' ? 'badge-danger' : v.sumber === 'GoogleDrive' ? 'badge-success' : 'badge-info'}">${v.sumber}</span></td>
           <td><span class="badge-status ${v.status === 'Aktif' ? 'badge-success' : 'badge-warning'}">${v.status}</span></td>
           <td class="small text-secondary">${v.jumlahTerpakai}/${v.jumlahKode} terpakai</td>
           <td class="text-end">
             <button class="btn btn-sm btn-accent me-1" onclick='openGenerateKodeModal("${v.id}", ${JSON.stringify(v.judul).replace(/'/g, "&apos;")})'><i class="bi bi-key"></i> Generate Kode</button>
+            <button class="btn btn-sm btn-outline-navy me-1" onclick='openEditVideoModal(${JSON.stringify(v).replace(/'/g, "&apos;")})' title="Edit video"><i class="bi bi-pencil"></i></button>
             <button class="btn btn-sm btn-outline-secondary" onclick="toggleVideoStatus('${v.id}')"><i class="bi bi-power"></i></button>
           </td>
         </tr>`).join('');
@@ -1202,17 +1203,32 @@
     
     function openAddVideoModal() {
       document.getElementById('formAddVideo').reset();
+      document.getElementById('videoEditId').value = '';
+      document.getElementById('modalAddVideoTitle').innerHTML = '<i class="bi bi-collection-play"></i> Tambah Video Tutorial';
       document.getElementById('videoLampiranList').innerHTML = '';
       new bootstrap.Modal(document.getElementById('modalAddVideo')).show();
     }
     
-    function addLampiranRow() {
+    function openEditVideoModal(video) {
+      document.getElementById('formAddVideo').reset();
+      document.getElementById('videoEditId').value = video.id;
+      document.getElementById('modalAddVideoTitle').innerHTML = '<i class="bi bi-pencil"></i> Edit Video Tutorial';
+      document.getElementById('videoJudul').value = video.judul || '';
+      document.getElementById('videoDeskripsi').value = video.deskripsi || '';
+      document.getElementById('videoUrl').value = video.url || '';
+      document.getElementById('videoThumbnail').value = video.thumbnail || '';
+      document.getElementById('videoLampiranList').innerHTML = '';
+      (video.lampiran || []).forEach(l => addLampiranRow(l.label, l.url));
+      new bootstrap.Modal(document.getElementById('modalAddVideo')).show();
+    }
+    
+    function addLampiranRow(label, url) {
       const wrap = document.getElementById('videoLampiranList');
       const row = document.createElement('div');
       row.className = 'input-group input-group-sm mb-2 lampiran-row';
       row.innerHTML = `
-        <input type="text" class="form-control lampiran-label" placeholder="Label (misal: Modul PDF)">
-        <input type="url" class="form-control lampiran-url" placeholder="https://...">
+        <input type="text" class="form-control lampiran-label" placeholder="Label (misal: Modul PDF)" value="${escapeHtml(label || '')}">
+        <input type="url" class="form-control lampiran-url" placeholder="https://..." value="${escapeHtml(url || '')}">
         <button type="button" class="btn btn-outline-danger" onclick="this.closest('.lampiran-row').remove()"><i class="bi bi-trash"></i></button>`;
       wrap.appendChild(row);
     }
@@ -1225,6 +1241,7 @@
           url: row.querySelector('.lampiran-url').value.trim()
         }))
         .filter(l => l.url);
+      const editId = document.getElementById('videoEditId').value;
       const record = {
         judul: document.getElementById('videoJudul').value.trim(),
         deskripsi: document.getElementById('videoDeskripsi').value.trim(),
@@ -1232,11 +1249,13 @@
         thumbnail: document.getElementById('videoThumbnail').value.trim(),
         lampiran: lampiran
       };
+      if (editId) record.id = editId;
       google.script.run
         .withSuccessHandler(res => {
           if (!res.success) { showToast('Gagal', res.message, 'danger'); return; }
           bootstrap.Modal.getInstance(document.getElementById('modalAddVideo')).hide();
           showToast('Berhasil', res.message, 'success');
+          delete AppState.cache.bankVideo;
           loadBankVideoTutorial();
         })
         .withFailureHandler(handleBackendError)
