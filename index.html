@@ -35,11 +35,11 @@
       <form id="loginForm" onsubmit="handleLogin(event)" class="mt-1">
         <div class="mb-3">
           <label class="form-label small fw-semibold">NIDN / Email Institusi</label>
-          <input type="text" class="form-control" id="loginIdentifier" placeholder="Masukkan Email" required autocomplete="username">
+          <input type="text" class="form-control" id="loginIdentifier" placeholder="contoh: siti@univ.ac.id" required autocomplete="username">
         </div>
         <div class="mb-3">
           <label class="form-label small fw-semibold">Kata Sandi</label>
-          <input type="password" class="form-control" id="loginPassword" placeholder="Masukkan Kata Sandi" required autocomplete="current-password">
+          <input type="password" class="form-control" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
         </div>
         <button type="submit" class="btn btn-accent w-100 py-2">
           <i class="bi bi-box-arrow-in-right"></i> Masuk ke Akun
@@ -229,10 +229,11 @@
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title"><i class="bi bi-collection-play"></i> Tambah Video Tutorial</h5>
+          <h5 class="modal-title" id="modalAddVideoTitle"><i class="bi bi-collection-play"></i> Tambah Video Tutorial</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <form id="formAddVideo" onsubmit="submitAddVideo(event)">
+          <input type="hidden" id="videoEditId" value="">
           <div class="modal-body">
             <div class="mb-3">
               <label class="form-label small fw-semibold">Judul Video *</label>
@@ -243,8 +244,9 @@
               <textarea class="form-control" id="videoDeskripsi" rows="2"></textarea>
             </div>
             <div class="mb-3">
-              <label class="form-label small fw-semibold">URL Video (YouTube / Vimeo) *</label>
-              <input type="url" class="form-control" id="videoUrl" placeholder="https://www.youtube.com/watch?v=..." required>
+              <label class="form-label small fw-semibold">URL Video (YouTube / Vimeo / Google Drive) *</label>
+              <input type="url" class="form-control" id="videoUrl" placeholder="https://www.youtube.com/watch?v=... atau link share Google Drive" required>
+              <div class="form-text">Google Drive paling "tersegel" di dalam aplikasi (tidak ada tombol/logo yang mendorong keluar). Video harus di-share sebagai "Anyone with the link".</div>
             </div>
             <div class="mb-3">
               <label class="form-label small fw-semibold">URL Thumbnail</label>
