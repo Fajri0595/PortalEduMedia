@@ -78,3 +78,14 @@ Ringkasan tahapannya:
 - **Login dengan Google** kemungkinan besar tidak berfungsi lagi setelah migrasi ini, karena frontend & backend kini di domain (origin) yang berbeda — browser tidak lagi otomatis membawa sesi Google saat `fetch()` lintas origin. Gunakan login NIDN/Email + kata sandi sebagai jalur utama.
 - Kalau situs tampil tapi data tidak muncul / muncul pesan "Gagal terhubung ke server" → cek lagi `GAS_URL` di `js/config.js`, dan pastikan deployment Apps Script sudah **Anyone** access.
 - Setiap kali `Kode.gs` diedit di Apps Script, buat **New deployment** lagi (bukan sekadar Save) supaya perubahan benar-benar aktif di URL `/exec`.
+
+---
+
+## 🔄 Update Optimasi v2.1 (UX instan)
+
+Update ini mengubah **dua bagian sekaligus**, jadi lakukan berurutan:
+
+1. **Backend dulu** — buka proyek Apps Script, ganti SELURUH isi file `Kode` dengan isi `Kode.gs` versi 2.1 (file terpisah di chat). **Jangan jalankan `setupAppEnvironment` lagi** — data Anda tetap dipakai. Lalu **Deploy → Manage deployments → ikon pensil → Version: New version → Deploy** (URL `/exec` tidak berubah, `config.js` tidak perlu diedit).
+2. **Frontend** — timpa isi repository dengan isi ZIP ini, lalu `git add .`, `git commit -m "Optimasi UX v2.1"`, `git push`. Tunggu 1–2 menit dan tekan **Ctrl+F5**.
+
+Catatan: setelah backend v2.1 dipasang, semua orang yang sedang login akan tetap login (sesi lama dibaca dari cadangan), tetapi bila ada yang terlempar ke halaman login, cukup login ulang.

@@ -6,7 +6,8 @@
      * Lapisan transport ada di js/api.js — semua pemanggilan di file
      * ini tetap ditulis gaya google.script.run.xxx(...) apa adanya.
      * Prinsip: SPA murni (navigasi 0ms), cache lokal (AppState.cache),
-     * optimistic UI pada aksi ringan.
+     * optimistic UI (aksi tulis terasa instan, rollback bila gagal),
+     * sesi dipulihkan instan, pemanasan server, bootstrap 1 request.
      * ============================================================
      */
     
@@ -97,21 +98,50 @@
         // Pulihkan sesi Dosen/Admin setelah refresh browser, dari token yang
         // disimpan di sessionStorage (bukan di URL).
         const savedToken = sessionStorage.getItem('em_token');
-        if (savedToken) {
+        let snap = null;
+        try { snap = JSON.parse(sessionStorage.getItem('em_user') || 'null'); } catch (e) { snap = null; }
+
+        if (savedToken && snap && snap.token === savedToken) {
+          // INSTAN: tampilkan aplikasi langsung dari snapshot sesi + cache lokal
+          // (tanpa menunggu server), lalu validasi token diam-diam di background.
+          hideLoadingOverlay();
+          restoreSession(snap);
+          validateSessionInBackground(savedToken);
+        } else if (savedToken) {
+          // Snapshot tidak ada (sesi versi lama) — jalur klasik: tunggu validasi server.
           google.script.run
             .withSuccessHandler(res => {
               hideLoadingOverlay();
-              if (res.success) { restoreSession(res.data); } else { sessionStorage.removeItem('em_token'); sessionStorage.removeItem('em_last_section'); showView('login'); }
+              if (res.success) { sessionStorage.setItem('em_user', JSON.stringify(res.data)); restoreSession(res.data); }
+              else { sessionStorage.removeItem('em_token'); sessionStorage.removeItem('em_user'); sessionStorage.removeItem('em_last_section'); showView('login'); }
             })
             .withFailureHandler(() => { hideLoadingOverlay(); showView('login'); })
             .checkSession(savedToken);
         } else {
           hideLoadingOverlay();
           showView('login');
+          gasWarmup(); // bangunkan server selama pengguna mengetik kredensial
         }
       }
+      startKeepWarm();
     });
-    
+
+    // Validasi token di belakang layar. Gagal jaringan ≠ sesi habis: hanya
+    // respons server "tidak valid" yang mengeluarkan pengguna.
+    function validateSessionInBackground(token) {
+      google.script.run
+        .withSuccessHandler(res => { if (res && !res.success && AppState.sessionToken === token) handleSessionExpired(); })
+        .withFailureHandler(() => {})
+        .checkSession(token);
+    }
+
+    // Apps Script "tertidur" bila lama tak dipakai (cold start 2–5 detik).
+    // Selama tab terlihat, kirim ping ringan tiap 4 menit & saat tab kembali aktif.
+    function startKeepWarm() {
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) gasWarmup(); });
+      setInterval(() => { if (!document.hidden) gasWarmup(); }, 4 * 60 * 1000);
+    }
+
     function restoreSession(data) {
       AppState.sessionToken = data.token; AppState.role = data.role; AppState.nama = data.nama; AppState.id = data.id; AppState.email = data.email;
       applyUserChip();
@@ -141,7 +171,32 @@
       ]
     };
     
+    // Peta kunci hasil getBootstrapData → kunci cache frontend.
+    const BOOTSTRAP_MAP = {
+      Dosen: { katalogSaya: ['katalogSaya'], kelasSaya: ['kelasSaya'], videoTutorialSaya: ['videoTutorialSaya'], tutorialKonten: ['tutorialTeks', 'kelolaKonten'] },
+      Admin: { adminDashboard: ['adminDashboard'], bankVideo: ['bankVideo'], users: ['users'], tutorialKonten: ['kelolaKonten', 'tutorialTeks'] }
+    };
+
+    // PRINSIP 4 (batch): semua data menu utama diminta dalam SATU request,
+    // bukan 4 request beruntun. Bila backend belum diperbarui (action belum
+    // dikenal) atau gagal, otomatis mundur ke cara lama (prefetchStaggered).
     function prefetchAfterLogin(role) {
+      setTimeout(() => {
+        google.script.run
+          .withSuccessHandler(res => {
+            if (res && res.success && res.data) {
+              const map = BOOTSTRAP_MAP[role] || {};
+              Object.keys(map).forEach(k => {
+                if (res.data[k] !== undefined) map[k].forEach(ck => { AppState.cache[ck] = res.data[k]; });
+              });
+            } else { prefetchStaggered(role); }
+          })
+          .withFailureHandler(() => prefetchStaggered(role))
+          .getBootstrapData(AppState.sessionToken);
+      }, 400); // beri jalan dulu untuk data menu yang sedang dibuka
+    }
+
+    function prefetchStaggered(role) {
       (PREFETCH_MAP[role] || []).forEach((item, i) => {
         // Ditunda bertahap (staggered) supaya tidak membanjiri server dengan
         // banyak request bersamaan tepat setelah login. Ini murni pemanasan
@@ -195,7 +250,7 @@
       const cardsHtml = data.links.length ? data.links.map(l => `
         <div class="media-card">
           <div class="media-thumb">
-            ${l.thumbnail ? `<img src="${escapeHtml(l.thumbnail)}" alt="">` : `<div class="play-overlay"><i class="bi bi-image"></i></div>`}
+            ${l.thumbnail ? `<img loading="lazy" decoding="async" src="${escapeHtml(l.thumbnail)}" alt="">` : `<div class="play-overlay"><i class="bi bi-image"></i></div>`}
             <span class="media-cat-badge">${escapeHtml(l.kategori || 'Umum')}</span>
           </div>
           <div class="media-body">
@@ -265,6 +320,7 @@
       AppState.sessionToken = res.data.token;
       AppState.role = res.data.role; AppState.nama = res.data.nama; AppState.id = res.data.id; AppState.email = res.data.email;
       sessionStorage.setItem('em_token', res.data.token); // FIX: bertahan saat refresh, tidak pernah masuk ke URL
+      sessionStorage.setItem('em_user', JSON.stringify(res.data)); // snapshot → pemulihan sesi instan saat refresh
       applyUserChip();
       document.getElementById('navGroupAdmin').style.display = AppState.role === 'Admin' ? 'block' : 'none';
       document.getElementById('navGroupDosen').style.display = AppState.role === 'Admin' ? 'none' : 'block';
@@ -284,7 +340,7 @@
     function handleLogout() {
       google.script.run.doLogout(AppState.sessionToken); // fire & forget
       AppState.sessionToken = null; AppState.role = null; clearPersistentCache();
-      sessionStorage.removeItem('em_token'); sessionStorage.removeItem('em_last_section');
+      sessionStorage.removeItem('em_token'); sessionStorage.removeItem('em_user'); sessionStorage.removeItem('em_last_section');
       document.getElementById('loginForm').reset();
       showView('login');
     }
@@ -293,7 +349,7 @@
     function handleSessionExpired() {
       showToast('Sesi Berakhir', 'Silakan login kembali.', 'warning');
       AppState.sessionToken = null; clearPersistentCache();
-      sessionStorage.removeItem('em_token'); sessionStorage.removeItem('em_last_section');
+      sessionStorage.removeItem('em_token'); sessionStorage.removeItem('em_user'); sessionStorage.removeItem('em_last_section');
       showView('login');
     }
     
@@ -374,6 +430,29 @@
     }
     
     // ════════════════════════════════════════════════════════
+    // OPTIMISTIC UI — aksi tulis terasa instan (0 ms)
+    // ════════════════════════════════════════════════════════
+    // Alur: apply() ubah cache + tampilan SEKARANG → send() kirim ke server di
+    // latar belakang → bila gagal, rollback() mengembalikan keadaan semula dan
+    // menampilkan pesan error. Pengguna tidak pernah menunggu spinner.
+    function cloneJson(x) { return x === undefined ? undefined : JSON.parse(JSON.stringify(x)); }
+    function isSection(name) { return AppState.currentSection === name; }
+    function naturalSortBy(list, field) {
+      return list.slice().sort((a, b) => String(a[field] || '').localeCompare(String(b[field] || ''), 'id', { numeric: true, sensitivity: 'base' }));
+    }
+
+    function runOptimistic(opts) {
+      opts.apply();
+      opts.send(
+        res => {
+          if (!res || !res.success) { opts.rollback(); handleBackendError(res); return; }
+          if (opts.onSuccess) opts.onSuccess(res);
+        },
+        err => { opts.rollback(); handleBackendError(err); }
+      );
+    }
+
+    // ════════════════════════════════════════════════════════
     // BAGIAN 7: KATALOG SAYA (Dosen) — CRUD tautan media
     // ════════════════════════════════════════════════════════
     
@@ -411,10 +490,10 @@
       }
     
       const rows = links.map(l => `
-        <tr>
-          <td><img class="table-thumb" src="${escapeHtml(l.thumbnail)}" alt=""></td>
+        <tr class="${l._pending ? 'row-pending' : ''}">
+          <td><img class="table-thumb" loading="lazy" decoding="async" src="${escapeHtml(l.thumbnail)}" alt=""></td>
           <td>
-            <div class="fw-semibold">${escapeHtml(l.judul)}</div>
+            <div class="fw-semibold">${escapeHtml(l.judul)}${l._pending ? ' <span class="badge-status badge-info ms-1">Menyimpan…</span>' : ''}</div>
             <div class="text-secondary small">${escapeHtml((l.deskripsi || '').substring(0, 60))}${(l.deskripsi || '').length > 60 ? '…' : ''}</div>
             ${!l.isMilikSendiri ? `<span class="badge-status badge-lecturer mt-1 d-inline-block">Milik ${escapeHtml(l.namaPemilik)}</span>` : ''}
           </td>
@@ -423,7 +502,7 @@
           <td><span class="badge-status ${l.status === 'Aktif' ? 'badge-success' : 'badge-warning'}">${l.status}</span></td>
           <td class="text-end">
             <a href="${escapeHtml(l.tautan)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-navy me-1" title="Buka media di tab baru"><i class="bi bi-box-arrow-up-right"></i></a>
-            ${l.isMilikSendiri ? `
+            ${l.isMilikSendiri && !l._pending ? `
             <button class="btn btn-sm btn-outline-navy me-1" onclick='openLinkForm(${JSON.stringify(l).replace(/'/g, "&apos;")})'><i class="bi bi-pencil"></i></button>
             <button class="btn btn-sm btn-outline-secondary" onclick="confirmDeleteLink('${l.id}', '${escapeHtml(l.judul).replace(/'/g, "\\'")}')"><i class="bi bi-trash text-danger"></i></button>
             ` : ''}
@@ -468,13 +547,18 @@
       if (url) { document.getElementById('thumbPreviewImg').src = url; box.style.display = 'block'; } else { box.style.display = 'none'; }
     }
     
+    function restoreLinkFormFields(r) {
+      document.getElementById('linkJudul').value = r.judul || '';
+      document.getElementById('linkKategori').value = r.kategori || 'Umum';
+      document.getElementById('linkDeskripsi').value = r.deskripsi || '';
+      document.getElementById('linkTautan').value = r.tautan || '';
+      document.getElementById('linkThumbnail').value = r.thumbnail || '';
+      document.getElementById('linkStatusAktif').checked = r.status === 'Aktif';
+      previewThumbnail();
+    }
+
     function submitLinkForm(event) {
       event.preventDefault();
-      const btn = document.getElementById('btnSaveLinkForm');
-      const original = btn.innerHTML;
-      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Menyimpan...';
-      btn.disabled = true;
-    
       const record = {
         id: document.getElementById('linkId').value || null,
         judul: document.getElementById('linkJudul').value.trim(),
@@ -484,32 +568,61 @@
         thumbnail: document.getElementById('linkThumbnail').value.trim(),
         status: document.getElementById('linkStatusAktif').checked ? 'Aktif' : 'Nonaktif'
       };
-    
-      google.script.run
-        .withSuccessHandler(res => {
-          btn.innerHTML = original; btn.disabled = false;
-          if (!res.success) return handleBackendError(res);
-          bootstrap.Modal.getInstance(document.getElementById('modalLinkForm')).hide();
-          showToast('Berhasil', res.message, 'success');
-          loadKatalogSaya();
-        })
-        .withFailureHandler(err => { btn.innerHTML = original; btn.disabled = false; handleBackendError(err); })
-        .saveKatalogLink(AppState.sessionToken, record);
+      const isEdit = !!record.id;
+      const tmpId = 'tmp_' + Date.now();
+      const prev = cloneJson(AppState.cache.katalogSaya) || [];
+      const fields = { judul: record.judul, kategori: record.kategori, deskripsi: record.deskripsi, tautan: record.tautan, thumbnail: record.thumbnail, status: record.status };
+
+      // Modal langsung ditutup — data langsung tampil di tabel (baris "Menyimpan…" untuk data baru).
+      bootstrap.Modal.getInstance(document.getElementById('modalLinkForm')).hide();
+
+      runOptimistic({
+        apply: () => {
+          const next = isEdit
+            ? prev.map(l => l.id === record.id ? Object.assign({}, l, fields) : l)
+            : prev.concat([Object.assign({ id: tmpId, isMilikSendiri: true, namaPemilik: AppState.nama, kelasTerhubung: [], _pending: true }, fields)]);
+          AppState.cache.katalogSaya = naturalSortBy(next, 'judul');
+          if (isSection('katalogSaya')) renderKatalogSaya(AppState.cache.katalogSaya);
+          if (isEdit) showToast('Berhasil', 'Perubahan materi disimpan.', 'success');
+        },
+        rollback: () => {
+          AppState.cache.katalogSaya = prev;
+          if (isSection('katalogSaya')) renderKatalogSaya(prev);
+          // Kembalikan formulir dengan isian semula agar pengguna tidak mengetik ulang.
+          setTimeout(() => { openLinkForm(isEdit ? record : undefined); restoreLinkFormFields(record); }, 400);
+        },
+        send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).saveKatalogLink(AppState.sessionToken, record),
+        onSuccess: res => {
+          if (!isEdit && res.data && res.data.id) {
+            const cur = cloneJson(AppState.cache.katalogSaya) || [];
+            AppState.cache.katalogSaya = cur.map(l => l.id === tmpId ? Object.assign({}, l, { id: res.data.id, _pending: false }) : l);
+            if (isSection('katalogSaya')) renderKatalogSaya(AppState.cache.katalogSaya);
+            showToast('Berhasil', res.message, 'success');
+          }
+        }
+      });
     }
     
     function confirmDeleteLink(id, judul) {
       document.getElementById('modalConfirmText').textContent = `Hapus materi "${judul}"? Tindakan ini tidak dapat dibatalkan.`;
       const btn = document.getElementById('btnModalConfirmAction');
       btn.onclick = () => {
-        google.script.run
-          .withSuccessHandler(res => {
-            bootstrap.Modal.getInstance(document.getElementById('modalConfirm')).hide();
-            if (!res.success) return handleBackendError(res);
-            showToast('Berhasil', res.message, 'success');
-            loadKatalogSaya();
-          })
-          .withFailureHandler(handleBackendError)
-          .deleteKatalogLink(AppState.sessionToken, id);
+        bootstrap.Modal.getInstance(document.getElementById('modalConfirm')).hide();
+        const prev = cloneJson(AppState.cache.katalogSaya) || [];
+        runOptimistic({
+          apply: () => {
+            AppState.cache.katalogSaya = prev.filter(l => l.id !== id);
+            if (isSection('katalogSaya')) renderKatalogSaya(AppState.cache.katalogSaya);
+            showToast('Berhasil', 'Materi dihapus.', 'success');
+          },
+          rollback: () => { AppState.cache.katalogSaya = prev; if (isSection('katalogSaya')) renderKatalogSaya(prev); },
+          send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).deleteKatalogLink(AppState.sessionToken, id),
+          onSuccess: () => {
+            // Materi yang dihapus juga harus hilang dari daftar pilihan media di tiap kelas.
+            const kd = AppState.cache.kelasDetail;
+            if (kd) Object.keys(kd).forEach(k => { const d = cloneJson(kd[k]); d.links = (d.links || []).filter(l => l.id !== id); kd[k] = d; });
+          }
+        });
       };
       new bootstrap.Modal(document.getElementById('modalConfirm')).show();
     }
@@ -559,6 +672,8 @@
           <div class="col-lg-4">${listHtml}</div>
           <div class="col-lg-8"><div id="kelasDetailPanel"><div class="skeleton" style="height:320px;"></div></div></div>
         </div>`;
+      // Rombel yang baru dibuat (masih id sementara) belum ada di server — tunggu id asli.
+      if (String(selectedKelasId).indexOf('tmp_') === 0) return;
       loadKelasDetail(selectedKelasId);
     }
     
@@ -626,46 +741,80 @@
     function promptCreateKelas() {
       const nama = prompt('Nama Rombel / Kelas (misal: TI-2A : Pemrograman Web Lanjut):');
       if (!nama) return;
-      const jumlah = prompt('Jumlah mahasiswa terdaftar (opsional):', '30');
-    
-      google.script.run
-        .withSuccessHandler(res => {
-          if (!res.success) return handleBackendError(res);
+      const jumlah = Number(prompt('Jumlah mahasiswa terdaftar (opsional):', '30')) || 0;
+      const prevList = cloneJson(AppState.cache.kelasSaya) || [];
+      const prevSel = selectedKelasId;
+      const tmpId = 'tmp_' + Date.now();
+
+      runOptimistic({
+        apply: () => {
+          AppState.cache.kelasSaya = prevList.concat([{ id: tmpId, namaKelas: nama, jumlahMahasiswa: jumlah, jumlahMediaTerpilih: 0, status: 'Aktif', _pending: true }]);
+          selectedKelasId = tmpId;
+          if (isSection('manajemenKelas')) renderManajemenKelas(AppState.cache.kelasSaya);
+        },
+        rollback: () => {
+          AppState.cache.kelasSaya = prevList; selectedKelasId = prevSel;
+          if (isSection('manajemenKelas')) renderManajemenKelas(prevList);
+        },
+        send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).createKelas(AppState.sessionToken, nama, jumlah),
+        onSuccess: res => {
+          const cur = cloneJson(AppState.cache.kelasSaya) || [];
+          AppState.cache.kelasSaya = cur.map(k => k.id === tmpId ? Object.assign({}, k, { id: res.data.id, _pending: false }) : k);
+          if (selectedKelasId === tmpId) selectedKelasId = res.data.id;
           showToast('Berhasil', res.message, 'success');
-          selectedKelasId = res.data.id;
-          loadManajemenKelas();
-        })
-        .withFailureHandler(handleBackendError)
-        .createKelas(AppState.sessionToken, nama, Number(jumlah) || 0);
+          if (isSection('manajemenKelas')) renderManajemenKelas(AppState.cache.kelasSaya);
+        }
+      });
     }
     
     function promptEditKelas(idKelas, namaSaatIni, jumlahSaatIni) {
       const nama = prompt('Ubah nama Rombel / Kelas:', namaSaatIni);
       if (!nama) return;
-      const jumlah = prompt('Ubah jumlah mahasiswa terdaftar:', jumlahSaatIni);
-    
-      google.script.run
-        .withSuccessHandler(res => {
-          if (!res.success) return handleBackendError(res);
-          showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.kelasSaya;
-          if (AppState.cache.kelasDetail) delete AppState.cache.kelasDetail[idKelas];
-          loadManajemenKelas();
-        })
-        .withFailureHandler(handleBackendError)
-        .updateKelas(AppState.sessionToken, idKelas, nama, Number(jumlah) || 0);
+      const jumlah = Number(prompt('Ubah jumlah mahasiswa terdaftar:', jumlahSaatIni)) || 0;
+      const prevList = cloneJson(AppState.cache.kelasSaya) || [];
+      const prevDetail = cloneJson(AppState.cache.kelasDetail && AppState.cache.kelasDetail[idKelas]);
+      const patch = { namaKelas: nama, jumlahMahasiswa: jumlah };
+
+      runOptimistic({
+        apply: () => {
+          AppState.cache.kelasSaya = prevList.map(k => k.id === idKelas ? Object.assign({}, k, patch) : k);
+          if (prevDetail) { if (!AppState.cache.kelasDetail) AppState.cache.kelasDetail = {}; AppState.cache.kelasDetail[idKelas] = Object.assign({}, prevDetail, patch); }
+          selectedKelasId = idKelas;
+          if (isSection('manajemenKelas')) renderManajemenKelas(AppState.cache.kelasSaya);
+          showToast('Berhasil', 'Rombel diperbarui.', 'success');
+        },
+        rollback: () => {
+          AppState.cache.kelasSaya = prevList;
+          if (prevDetail && AppState.cache.kelasDetail) AppState.cache.kelasDetail[idKelas] = prevDetail;
+          if (isSection('manajemenKelas')) renderManajemenKelas(prevList);
+        },
+        send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).updateKelas(AppState.sessionToken, idKelas, nama, jumlah)
+      });
     }
     
     function saveDistribusi(idKelas) {
       const ids = Array.from(document.querySelectorAll('[data-kelas-checkbox]:checked')).map(el => el.value);
-      google.script.run
-        .withSuccessHandler(res => {
-          if (!res.success) return handleBackendError(res);
-          showToast('Berhasil', res.message, 'success');
-          loadManajemenKelas();
-        })
-        .withFailureHandler(handleBackendError)
-        .saveDistribusiKelas(AppState.sessionToken, idKelas, ids);
+      const prevList = cloneJson(AppState.cache.kelasSaya) || [];
+      const prevDetail = cloneJson(AppState.cache.kelasDetail && AppState.cache.kelasDetail[idKelas]);
+
+      runOptimistic({
+        apply: () => {
+          AppState.cache.kelasSaya = prevList.map(k => k.id === idKelas ? Object.assign({}, k, { jumlahMediaTerpilih: ids.length }) : k);
+          if (prevDetail) {
+            const d = cloneJson(prevDetail);
+            d.links = (d.links || []).map(l => Object.assign({}, l, { selected: ids.indexOf(l.id) !== -1 }));
+            AppState.cache.kelasDetail[idKelas] = d;
+          }
+          if (isSection('manajemenKelas')) { selectedKelasId = idKelas; renderManajemenKelas(AppState.cache.kelasSaya); }
+          showToast('Berhasil', 'Pilihan media untuk rombel ini disimpan.', 'success');
+        },
+        rollback: () => {
+          AppState.cache.kelasSaya = prevList;
+          if (prevDetail && AppState.cache.kelasDetail) AppState.cache.kelasDetail[idKelas] = prevDetail;
+          if (isSection('manajemenKelas')) renderManajemenKelas(prevList);
+        },
+        send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).saveDistribusiKelas(AppState.sessionToken, idKelas, ids)
+      });
     }
     
     function regenToken(idKelas) {
@@ -674,9 +823,17 @@
         .withSuccessHandler(res => {
           if (!res.success) return handleBackendError(res);
           showToast('Berhasil', res.message, 'success');
-          // Token lama sudah tidak valid — hapus cache agar tidak sempat tampil sekilas
-          if (AppState.cache.kelasDetail) delete AppState.cache.kelasDetail[idKelas];
-          loadKelasDetail(idKelas);
+          // Token baru sudah ada di respons → perbarui cache & tampilan langsung,
+          // tanpa fetch ulang. Token lama tidak pernah sempat tampil lagi.
+          const d = AppState.cache.kelasDetail && AppState.cache.kelasDetail[idKelas];
+          if (d && res.data && res.data.token) {
+            const nd = cloneJson(d); nd.token = res.data.token;
+            AppState.cache.kelasDetail[idKelas] = nd;
+            if (isSection('manajemenKelas') && selectedKelasId === idKelas) renderKelasDetail(nd);
+          } else {
+            if (AppState.cache.kelasDetail) delete AppState.cache.kelasDetail[idKelas];
+            loadKelasDetail(idKelas);
+          }
         })
         .withFailureHandler(handleBackendError)
         .regenerateToken(AppState.sessionToken, idKelas);
@@ -684,19 +841,22 @@
     
     function deleteKelasHandler(idKelas, namaKelas) {
       if (!confirm(`Hapus rombel "${namaKelas}"? Link akses mahasiswa untuk rombel ini akan langsung tidak berlaku. Tindakan ini tidak bisa dibatalkan.`)) return;
-      google.script.run
-        .withSuccessHandler(res => {
-          if (!res.success) return handleBackendError(res);
-          showToast('Berhasil', res.message, 'success');
-          // Bersihkan cache supaya rombel yang baru dihapus tidak sempat tampil
-          // sekilas (stale) sebelum daftar disegarkan.
-          delete AppState.cache.kelasSaya;
-          if (AppState.cache.kelasDetail) delete AppState.cache.kelasDetail[idKelas];
+      const prevList = cloneJson(AppState.cache.kelasSaya) || [];
+      const prevSel = selectedKelasId;
+      runOptimistic({
+        apply: () => {
+          AppState.cache.kelasSaya = prevList.filter(k => k.id !== idKelas);
           selectedKelasId = null;
-          loadManajemenKelas();
-        })
-        .withFailureHandler(handleBackendError)
-        .deleteKelas(AppState.sessionToken, idKelas);
+          if (isSection('manajemenKelas')) renderManajemenKelas(AppState.cache.kelasSaya);
+          showToast('Berhasil', 'Rombel dihapus.', 'success');
+        },
+        rollback: () => {
+          AppState.cache.kelasSaya = prevList; selectedKelasId = prevSel;
+          if (isSection('manajemenKelas')) renderManajemenKelas(prevList);
+        },
+        send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).deleteKelas(AppState.sessionToken, idKelas),
+        onSuccess: () => { if (AppState.cache.kelasDetail) delete AppState.cache.kelasDetail[idKelas]; }
+      });
     }
     
     // ════════════════════════════════════════════════════════
@@ -810,7 +970,7 @@
         <div class="col-md-6 col-lg-4">
           <div class="media-card" ${v.locked ? 'style="opacity:.75;"' : ''}>
             <div class="media-thumb">
-              ${v.thumbnail ? `<img src="${escapeHtml(v.thumbnail)}" alt="" ${v.locked ? 'style="filter:grayscale(1) brightness(.6);"' : ''}>` : ''}
+              ${v.thumbnail ? `<img loading="lazy" decoding="async" src="${escapeHtml(v.thumbnail)}" alt="" ${v.locked ? 'style="filter:grayscale(1) brightness(.6);"' : ''}>` : ''}
               <div class="play-overlay">${v.locked ? '<i class="bi bi-lock-fill"></i>' : '<i class="bi bi-play-circle-fill"></i>'}</div>
               <span class="media-cat-badge">${escapeHtml(v.sumber)}</span>
             </div>
@@ -1134,15 +1294,17 @@
     function confirmDeleteUser(id, nama) {
       document.getElementById('modalConfirmText').textContent = `Hapus pengguna "${nama}"?`;
       document.getElementById('btnModalConfirmAction').onclick = () => {
-        google.script.run
-          .withSuccessHandler(res => {
-            bootstrap.Modal.getInstance(document.getElementById('modalConfirm')).hide();
-            if (!res.success) return handleBackendError(res);
-            showToast('Berhasil', res.message, 'success');
-            loadManajemenUser();
-          })
-          .withFailureHandler(handleBackendError)
-          .deleteUser(AppState.sessionToken, id);
+        bootstrap.Modal.getInstance(document.getElementById('modalConfirm')).hide();
+        const prev = cloneJson(AppState.cache.users) || [];
+        runOptimistic({
+          apply: () => {
+            AppState.cache.users = prev.filter(u => u.id !== id);
+            if (isSection('manajemenUser')) renderManajemenUser(AppState.cache.users);
+            showToast('Berhasil', 'Pengguna dihapus.', 'success');
+          },
+          rollback: () => { AppState.cache.users = prev; if (isSection('manajemenUser')) renderManajemenUser(prev); },
+          send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).deleteUser(AppState.sessionToken, id)
+        });
       };
       new bootstrap.Modal(document.getElementById('modalConfirm')).show();
     }
@@ -1184,7 +1346,7 @@
     
       const rows = videos.map(v => `
         <tr>
-          <td><img class="table-thumb" src="${escapeHtml(v.thumbnail || '')}" alt=""></td>
+          <td><img class="table-thumb" loading="lazy" decoding="async" src="${escapeHtml(v.thumbnail || '')}" alt=""></td>
           <td class="fw-semibold small">${escapeHtml(v.judul)}${v.lampiran && v.lampiran.length ? ` <span class="badge-status badge-info">${v.lampiran.length} lampiran</span>` : ''}</td>
           <td><span class="badge-status ${v.sumber === 'YouTube' ? 'badge-danger' : v.sumber === 'GoogleDrive' ? 'badge-success' : 'badge-info'}">${v.sumber}</span></td>
           <td><span class="badge-status ${v.status === 'Aktif' ? 'badge-success' : 'badge-warning'}">${v.status}</span></td>
@@ -1255,18 +1417,23 @@
           if (!res.success) { showToast('Gagal', res.message, 'danger'); return; }
           bootstrap.Modal.getInstance(document.getElementById('modalAddVideo')).hide();
           showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.bankVideo;
-          loadBankVideoTutorial();
+          loadBankVideoTutorial(); // daftar lama tetap tampil (tanpa skeleton) sambil disegarkan
         })
         .withFailureHandler(handleBackendError)
         .saveBankVideo(AppState.sessionToken, record);
     }
     
     function toggleVideoStatus(id) {
-      google.script.run
-        .withSuccessHandler(res => { if (!res.success) return handleBackendError(res); showToast('Berhasil', res.message, 'success'); loadBankVideoTutorial(); })
-        .withFailureHandler(handleBackendError)
-        .toggleVideoStatus(AppState.sessionToken, id);
+      const prev = cloneJson(AppState.cache.bankVideo) || [];
+      runOptimistic({
+        apply: () => {
+          AppState.cache.bankVideo = prev.map(v => v.id === id ? Object.assign({}, v, { status: v.status === 'Aktif' ? 'Nonaktif' : 'Aktif' }) : v);
+          if (isSection('bankVideoTutorial')) renderBankVideo(AppState.cache.bankVideo);
+          showToast('Berhasil', 'Status video diperbarui.', 'success');
+        },
+        rollback: () => { AppState.cache.bankVideo = prev; if (isSection('bankVideoTutorial')) renderBankVideo(prev); },
+        send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).toggleVideoStatus(AppState.sessionToken, id)
+      });
     }
     
     let generateKodeTargetId = null;
@@ -1378,15 +1545,21 @@
     function confirmDeleteTutorial(id, judul) {
       document.getElementById('modalConfirmText').textContent = `Hapus panduan "${judul}"?`;
       document.getElementById('btnModalConfirmAction').onclick = () => {
-        google.script.run
-          .withSuccessHandler(res => {
-            bootstrap.Modal.getInstance(document.getElementById('modalConfirm')).hide();
-            if (!res.success) return handleBackendError(res);
-            showToast('Berhasil', res.message, 'success');
-            loadKelolaKontenTutorial();
-          })
-          .withFailureHandler(handleBackendError)
-          .deleteTutorialKonten(AppState.sessionToken, id);
+        bootstrap.Modal.getInstance(document.getElementById('modalConfirm')).hide();
+        const prev = cloneJson(AppState.cache.kelolaKonten) || [];
+        runOptimistic({
+          apply: () => {
+            const next = prev.filter(t => t.id !== id);
+            AppState.cache.kelolaKonten = next; AppState.cache.tutorialTeks = next;
+            if (isSection('kelolaKontenTutorial')) renderKelolaKonten(next);
+            showToast('Berhasil', 'Panduan dihapus.', 'success');
+          },
+          rollback: () => {
+            AppState.cache.kelolaKonten = prev; AppState.cache.tutorialTeks = prev;
+            if (isSection('kelolaKontenTutorial')) renderKelolaKonten(prev);
+          },
+          send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).deleteTutorialKonten(AppState.sessionToken, id)
+        });
       };
       new bootstrap.Modal(document.getElementById('modalConfirm')).show();
     }
@@ -1518,15 +1691,16 @@
     }
     
     function toggleKatalogStatusAdmin(id) {
-      google.script.run
-        .withSuccessHandler(res => {
-          if (!res.success) return handleBackendError(res);
-          showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.monitoringKatalog;
-          loadMonitoringKatalogKelas();
-        })
-        .withFailureHandler(handleBackendError)
-        .toggleKatalogLinkStatus(AppState.sessionToken, id);
+      const prev = cloneJson(AppState.cache.monitoringKatalog) || [];
+      runOptimistic({
+        apply: () => {
+          AppState.cache.monitoringKatalog = prev.map(l => l.id === id ? Object.assign({}, l, { status: l.status === 'Aktif' ? 'Nonaktif' : 'Aktif' }) : l);
+          if (isSection('monitoringKatalogKelas')) renderMonitoringKatalog(AppState.cache.monitoringKatalog);
+          showToast('Berhasil', 'Status materi diperbarui.', 'success');
+        },
+        rollback: () => { AppState.cache.monitoringKatalog = prev; if (isSection('monitoringKatalogKelas')) renderMonitoringKatalog(prev); },
+        send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).toggleKatalogLinkStatus(AppState.sessionToken, id)
+      });
     }
     
     function renderMonitoringKelas(list) {
@@ -1557,8 +1731,13 @@
         .withSuccessHandler(res => {
           if (!res.success) return handleBackendError(res);
           showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.monitoringKelas;
-          loadMonitoringKatalogKelas();
+          const list = cloneJson(AppState.cache.monitoringKelas) || [];
+          if (res.data && res.data.token) {
+            AppState.cache.monitoringKelas = list.map(k => k.id === idKelas ? Object.assign({}, k, { token: res.data.token }) : k);
+            if (isSection('monitoringKatalogKelas')) renderMonitoringKelas(AppState.cache.monitoringKelas);
+          } else { delete AppState.cache.monitoringKelas; loadMonitoringKatalogKelas(); }
+          // Cache dosen pemilik (bila kebetulan sama) ikut dibuang agar tak menampilkan token lama.
+          if (AppState.cache.kelasDetail) delete AppState.cache.kelasDetail[idKelas];
         })
         .withFailureHandler(handleBackendError)
         .regenerateToken(AppState.sessionToken, idKelas);
@@ -1566,15 +1745,18 @@
     
     function adminDeleteKelas(idKelas, namaKelas) {
       if (!confirm(`Hapus rombel "${namaKelas}"? Link akses mahasiswa untuk rombel ini akan langsung tidak berlaku. Tindakan ini tidak bisa dibatalkan.`)) return;
-      google.script.run
-        .withSuccessHandler(res => {
-          if (!res.success) return handleBackendError(res);
-          showToast('Berhasil', res.message, 'success');
-          delete AppState.cache.monitoringKelas;
-          loadMonitoringKatalogKelas();
-        })
-        .withFailureHandler(handleBackendError)
-        .deleteKelas(AppState.sessionToken, idKelas);
+      const prev = cloneJson(AppState.cache.monitoringKelas) || [];
+      runOptimistic({
+        apply: () => {
+          // Server melakukan soft-delete (Status → Nonaktif) dan Monitoring tetap
+          // menampilkannya — jadi tampilan optimistik meniru hal yang sama.
+          AppState.cache.monitoringKelas = prev.map(k => k.id === idKelas ? Object.assign({}, k, { status: 'Nonaktif' }) : k);
+          if (isSection('monitoringKatalogKelas')) renderMonitoringKelas(AppState.cache.monitoringKelas);
+          showToast('Berhasil', 'Rombel dihapus.', 'success');
+        },
+        rollback: () => { AppState.cache.monitoringKelas = prev; if (isSection('monitoringKatalogKelas')) renderMonitoringKelas(prev); },
+        send: (ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).deleteKelas(AppState.sessionToken, idKelas)
+      });
     }
     
     // ════════════════════════════════════════════════════════
