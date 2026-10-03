@@ -1673,6 +1673,10 @@
       const body = document.getElementById('monitoringKatalogBody');
       if (!body) return;
       if (!list.length) { body.innerHTML = `<div class="empty-state"><i class="bi bi-inbox"></i><p class="mt-2">Belum ada materi dari dosen mana pun.</p></div>`; return; }
+      // Urut: nama dosen pemilik, lalu judul materi (abjad/angka natural) — sama seperti akun Dosen.
+      list = list.slice().sort((a, b) =>
+        String(a.namaPemilik || '').localeCompare(String(b.namaPemilik || ''), 'id', { sensitivity: 'base' }) ||
+        String(a.judul || '').localeCompare(String(b.judul || ''), 'id', { numeric: true, sensitivity: 'base' }));
       body.innerHTML = `<div class="table-wrap"><div class="table-responsive"><table class="app-table">
         <thead><tr><th>Dosen Pemilik</th><th>Judul Materi</th><th>Kategori</th><th>Kelas Terhubung</th><th>Status</th><th class="text-end">Aksi</th></tr></thead>
         <tbody>${list.map(l => `
