@@ -501,13 +501,15 @@
           <td class="text-secondary small">${escapeHtml(l.kategori || 'Umum')}</td>
           <td class="text-secondary small">${l.kelasTerhubung.length ? l.kelasTerhubung.map(k => escapeHtml(k)).join(', ') : '<span class="text-muted">Belum ada kelas</span>'}</td>
           <td><span class="badge-status ${l.status === 'Aktif' ? 'badge-success' : 'badge-warning'}">${l.status}</span></td>
-          <td class="text-end">
-            <a href="${escapeHtml(l.tautan)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-navy me-1" title="Buka media di tab baru"><i class="bi bi-box-arrow-up-right"></i></a>
-            ${l.isMilikSendiri && !l._pending ? `
-            <button class="btn btn-sm btn-outline-navy me-1" title="Bagikan ke dosen akses silang" onclick="openBagiMateri('${l.id}', '${escapeHtml(l.judul).replace(/'/g, "\\'")}')"><i class="bi bi-people"></i></button>
-            <button class="btn btn-sm btn-outline-navy me-1" onclick='openLinkForm(${JSON.stringify(l).replace(/'/g, "&apos;")})'><i class="bi bi-pencil"></i></button>
-            <button class="btn btn-sm btn-outline-secondary" onclick="confirmDeleteLink('${l.id}', '${escapeHtml(l.judul).replace(/'/g, "\\'")}')"><i class="bi bi-trash text-danger"></i></button>
-            ` : ''}
+          <td class="aksi-cell">
+            <div class="aksi-group">
+              <a href="${escapeHtml(l.tautan)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-navy" title="Buka media di tab baru" aria-label="Buka media di tab baru"><i class="bi bi-box-arrow-up-right"></i></a>
+              ${l.isMilikSendiri && !l._pending ? `
+              <button class="btn btn-sm btn-outline-navy" title="Bagikan ke dosen akses silang" aria-label="Bagikan ke dosen akses silang" onclick="openBagiMateri('${l.id}', '${escapeHtml(l.judul).replace(/'/g, "\\'")}')"><i class="bi bi-people"></i></button>
+              <button class="btn btn-sm btn-outline-navy" title="Ubah materi" aria-label="Ubah materi" onclick='openLinkForm(${JSON.stringify(l).replace(/'/g, "&apos;")})'><i class="bi bi-pencil"></i></button>
+              <button class="btn btn-sm btn-outline-secondary" title="Hapus materi" aria-label="Hapus materi" onclick="confirmDeleteLink('${l.id}', '${escapeHtml(l.judul).replace(/'/g, "\\'")}')"><i class="bi bi-trash text-danger"></i></button>
+              ` : ''}
+            </div>
           </td>
         </tr>
       `).join('');

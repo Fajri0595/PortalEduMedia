@@ -242,7 +242,35 @@
     @media (prefers-reduced-motion: reduce) { body.is-syncing .top-progress { animation: none; background-size: 100% 100%; } }
 
     .row-pending { opacity: .6; transition: opacity .2s ease; }
-    .table-thumb, .media-thumb img { background: var(--navy-light); }
+
+    /* Kolom Aksi (Katalog Saya): tombol sejajar rapi & responsif */
+    table.app-table td.aksi-cell { width: 1%; white-space: nowrap; text-align: right; }
+    .aksi-group { display: inline-flex; flex-wrap: nowrap; justify-content: flex-end; align-items: center; gap: .4rem; }
+    .aksi-group .btn {
+      width: 2.1rem; height: 2.1rem; padding: 0; margin: 0;
+      display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+      font-size: .9rem; line-height: 1;
+    }
+    /* Ponsel: tombol disusun 2 per baris (kotak 2×2), selalu rata kanan —
+       baris yang hanya punya 1 tombol tetap sejajar di tepi kanan. */
+    @media (max-width: 575.98px) {
+      .aksi-group { display: flex; flex-wrap: wrap; justify-content: flex-end; width: calc(4.2rem + .4rem); margin-left: auto; }
+    }
+    @media (max-width: 359.98px) {
+      .aksi-group .btn { width: 1.9rem; height: 1.9rem; font-size: .8rem; }
+      .aksi-group { gap: .3rem; width: calc(3.8rem + .3rem); }
+    }
+    /* Layar sempit (tabel bisa digeser ke samping): kolom Aksi menempel di tepi kanan
+       supaya tombol selalu terjangkau tanpa menggeser tabel. */
+    @media (max-width: 767.98px) {
+      table.app-table td.aksi-cell, table.app-table thead th:last-child { position: sticky; right: 0; z-index: 2; }
+      table.app-table td.aksi-cell {
+        background: var(--bg-card);
+        box-shadow: -8px 0 8px -8px rgba(15, 23, 42, .25);
+      }
+      table.app-table tbody tr:hover td.aksi-cell { background: var(--bg-card) linear-gradient(var(--navy-light), var(--navy-light)); }
+      table.app-table thead th:last-child { background: var(--bg-primary); box-shadow: -8px 0 8px -8px rgba(15, 23, 42, .25); }
+    }
 
     /* ══════════ RESPONSIVE ══════════ */
     @media (max-width: 991.98px) {
