@@ -496,6 +496,7 @@
             <div class="fw-semibold">${escapeHtml(l.judul)}${l._pending ? ' <span class="badge-status badge-info ms-1">Menyimpan…</span>' : ''}</div>
             <div class="text-secondary small">${escapeHtml((l.deskripsi || '').substring(0, 60))}${(l.deskripsi || '').length > 60 ? '…' : ''}</div>
             ${!l.isMilikSendiri ? `<span class="badge-status badge-lecturer mt-1 d-inline-block">Milik ${escapeHtml(l.namaPemilik)}</span>` : ''}
+            ${l.isMilikSendiri && l.jumlahDibagikan > 0 ? `<span class="badge-status badge-info mt-1 d-inline-block"><i class="bi bi-people me-1"></i>Dibagikan ke ${l.jumlahDibagikan} dosen</span>` : ''}
           </td>
           <td class="text-secondary small">${escapeHtml(l.kategori || 'Umum')}</td>
           <td class="text-secondary small">${l.kelasTerhubung.length ? l.kelasTerhubung.map(k => escapeHtml(k)).join(', ') : '<span class="text-muted">Belum ada kelas</span>'}</td>
@@ -503,6 +504,7 @@
           <td class="text-end">
             <a href="${escapeHtml(l.tautan)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-navy me-1" title="Buka media di tab baru"><i class="bi bi-box-arrow-up-right"></i></a>
             ${l.isMilikSendiri && !l._pending ? `
+            <button class="btn btn-sm btn-outline-navy me-1" title="Bagikan ke dosen akses silang" onclick="openBagiMateri('${l.id}', '${escapeHtml(l.judul).replace(/'/g, "\\'")}')"><i class="bi bi-people"></i></button>
             <button class="btn btn-sm btn-outline-navy me-1" onclick='openLinkForm(${JSON.stringify(l).replace(/'/g, "&apos;")})'><i class="bi bi-pencil"></i></button>
             <button class="btn btn-sm btn-outline-secondary" onclick="confirmDeleteLink('${l.id}', '${escapeHtml(l.judul).replace(/'/g, "\\'")}')"><i class="bi bi-trash text-danger"></i></button>
             ` : ''}
@@ -521,6 +523,64 @@
         </div>`;
     }
     
+    // ════════════════════════════════════════════════════════
+    // BAGIKAN MATERI KE DOSEN AKSES SILANG (per materi, per dosen)
+    // ════════════════════════════════════════════════════════
+    // Daftar dosen yang bisa dipilih = dosen yang oleh Admin diberi akses silang
+    // ke akun ini (menu Manajemen User). Materi baru TIDAK otomatis dibagikan.
+    let bagiMateriIdLink = null;
+
+    function openBagiMateri(idLink, judul) {
+      bagiMateriIdLink = idLink;
+      document.getElementById('bagiMateriJudul').textContent = judul;
+      document.getElementById('bagiMateriBody').innerHTML = '<div class="text-secondary small">Memuat…</div>';
+      document.getElementById('btnSimpanBagiMateri').disabled = true;
+      new bootstrap.Modal(document.getElementById('modalBagiMateri')).show();
+
+      google.script.run
+        .withSuccessHandler(res => {
+          if (bagiMateriIdLink !== idLink) return; // modal sudah dibuka untuk materi lain
+          const body = document.getElementById('bagiMateriBody');
+          if (!res.success) { body.innerHTML = '<div class="text-danger small">' + escapeHtml(res.message || 'Gagal memuat.') + '</div>'; return handleBackendError(res); }
+          const list = res.data.penerima || [];
+          if (!list.length) {
+            body.innerHTML = '<div class="empty-state py-3"><i class="bi bi-people"></i><p class="mt-2 mb-0 small">Belum ada dosen yang diberi akses silang ke akun Anda. Hubungi Admin untuk mengaturnya di menu Manajemen User.</p></div>';
+            return;
+          }
+          body.innerHTML = list.map(p => `
+            <div class="form-check py-1">
+              <input class="form-check-input" type="checkbox" data-bagi-checkbox value="${escapeHtml(p.id)}" id="bagi_${escapeHtml(p.id)}" ${p.selected ? 'checked' : ''}>
+              <label class="form-check-label" for="bagi_${escapeHtml(p.id)}">${escapeHtml(p.nama)}<span class="text-secondary small d-block">${escapeHtml(p.email || '')}</span></label>
+            </div>`).join('');
+          document.getElementById('btnSimpanBagiMateri').disabled = false;
+        })
+        .withFailureHandler(err => {
+          document.getElementById('bagiMateriBody').innerHTML = '<div class="text-danger small">Gagal memuat daftar dosen.</div>';
+          handleBackendError(err);
+        })
+        .getPengaturanBagiMateri(AppState.sessionToken, idLink);
+    }
+
+    function submitBagiMateri() {
+      const idLink = bagiMateriIdLink;
+      if (!idLink) return;
+      const ids = Array.from(document.querySelectorAll('[data-bagi-checkbox]:checked')).map(el => el.value);
+      const btn = document.getElementById('btnSimpanBagiMateri');
+      btn.disabled = true;
+      google.script.run
+        .withSuccessHandler(res => {
+          btn.disabled = false;
+          if (!res.success) return handleBackendError(res);
+          bootstrap.Modal.getInstance(document.getElementById('modalBagiMateri')).hide();
+          showToast('Berhasil', ids.length ? `Materi dibagikan ke ${ids.length} dosen.` : 'Materi tidak lagi dibagikan ke dosen lain.', 'success');
+          const cur = cloneJson(AppState.cache.katalogSaya) || [];
+          AppState.cache.katalogSaya = cur.map(l => l.id === idLink ? Object.assign({}, l, { jumlahDibagikan: ids.length }) : l);
+          if (isSection('katalogSaya')) renderKatalogSaya(AppState.cache.katalogSaya);
+        })
+        .withFailureHandler(err => { btn.disabled = false; handleBackendError(err); })
+        .saveBagiMateri(AppState.sessionToken, idLink, ids);
+    }
+
     function openLinkForm(data) {
       document.getElementById('formLink').reset();
       document.getElementById('thumbPreviewBox').style.display = 'none';

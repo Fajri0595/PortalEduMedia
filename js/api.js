@@ -26,7 +26,7 @@ const GAS_GET_ACTIONS = new Set([
   'getKelasDetail', 'getVideoTutorialSaya', 'getSemuaVideoUntukDosen',
   'getLaporanAktivitasDosen', 'getTutorialKonten', 'getAdminDashboardData',
   'getAllUsers', 'getBankVideo', 'getLaporanGlobal', 'getKatalogSemuaDosen', 'getKelasSemuaDosen',
-  'ping', 'getBootstrapData'
+  'ping', 'getBootstrapData', 'getPengaturanBagiMateri'
 ]);
 // Sisanya (login, save*, delete*, create*, redeem, regenerate, toggle, record*)
 // otomatis dikirim via POST — lihat gasCall().
@@ -38,6 +38,8 @@ const GAS_ACTION_PARAMS = {
   checkSession: ['token'],
   getAppUrl: [],
   ping: [],
+  getPengaturanBagiMateri: ['token', 'idLink'],
+  saveBagiMateri: ['token', 'idLink', 'penerimaIds'],
   getBootstrapData: ['token'],
   getGuestCatalog: ['token'],
   getKatalogSaya: ['token'],
@@ -92,7 +94,7 @@ const GAS_ACTION_PARAMS = {
 //                      optimistik (item yang baru dihapus tidak "hidup lagi").
 // • Indikator sinkron: class "is-syncing" di <body> (garis tipis di atas layar).
 const GAS_MICROCACHE_TTL = 20000;
-const GAS_MICROCACHE_SKIP = new Set(['checkSession', 'ping', 'getGuestCatalog']);
+const GAS_MICROCACHE_SKIP = new Set(['checkSession', 'ping', 'getGuestCatalog', 'getPengaturanBagiMateri']);
 const GAS_READ_TIMEOUT = 30000;
 const GAS_WRITE_TIMEOUT = 45000;
 
